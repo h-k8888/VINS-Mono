@@ -19,8 +19,8 @@ extern int FREQ;
 extern double F_THRESHOLD;
 extern int SHOW_TRACK;
 extern int STEREO_TRACK;
-extern int EQUALIZE;
+extern int EQUALIZE;//如果光太亮或太暗则为1，特征提取前进行直方图均衡化
 extern int FISHEYE;
-extern bool PUB_THIS_FRAME;
+extern bool PUB_THIS_FRAME;//是否需要发布特征点
 
 void readParameters(ros::NodeHandle &n);

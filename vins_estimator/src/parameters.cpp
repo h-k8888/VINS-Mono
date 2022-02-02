@@ -43,7 +43,7 @@ void readParameters(ros::NodeHandle &n)
 {
     std::string config_file;
     config_file = readParam<std::string>(n, "config_file");
-    cv::FileStorage fsSettings(config_file, cv::FileStorage::READ);
+    cv::FileStorage fsSettings(config_file, cv::FileStorage::READ);//opencv读取yaml文件里的参数
     if(!fsSettings.isOpened())
     {
         std::cerr << "ERROR: Wrong path to settings" << std::endl;
@@ -71,7 +71,7 @@ void readParameters(ros::NodeHandle &n)
     ACC_W = fsSettings["acc_w"];
     GYR_N = fsSettings["gyr_n"];
     GYR_W = fsSettings["gyr_w"];
-    G.z() = fsSettings["g_norm"];
+    G.z() = fsSettings["g_norm"];//读取重力Z
     ROW = fsSettings["image_height"];
     COL = fsSettings["image_width"];
     ROS_INFO("ROW: %f COL: %f ", ROW, COL);

@@ -54,7 +54,7 @@ class FeatureTracker
     vector<cv::Point2f> prev_un_pts, cur_un_pts;
     vector<cv::Point2f> pts_velocity;
     vector<int> ids;
-    vector<int> track_cnt;
+    vector<int> track_cnt;//记录每个特征点跟踪到的次数，索引-->跟踪次数
     map<int, cv::Point2f> cur_un_pts_map;
     map<int, cv::Point2f> prev_un_pts_map;
     camodocal::CameraPtr m_camera;

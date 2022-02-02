@@ -41,40 +41,41 @@ double last_imu_t = 0;
 
 void predict(const sensor_msgs::ImuConstPtr &imu_msg)
 {
-    double t = imu_msg->header.stamp.toSec();
+    double t = imu_msg->header.stamp.toSec();//当前imu时间
     if (init_imu)
     {
         latest_time = t;
         init_imu = 0;
         return;
     }
-    double dt = t - latest_time;
+    double dt = t - latest_time;//时间差
     latest_time = t;
 
     double dx = imu_msg->linear_acceleration.x;
     double dy = imu_msg->linear_acceleration.y;
     double dz = imu_msg->linear_acceleration.z;
-    Eigen::Vector3d linear_acceleration{dx, dy, dz};
+    Eigen::Vector3d linear_acceleration{dx, dy, dz};//线加速度
 
     double rx = imu_msg->angular_velocity.x;
     double ry = imu_msg->angular_velocity.y;
     double rz = imu_msg->angular_velocity.z;
-    Eigen::Vector3d angular_velocity{rx, ry, rz};
+    Eigen::Vector3d angular_velocity{rx, ry, rz};//角速度
 
-    Eigen::Vector3d un_acc_0 = tmp_Q * (acc_0 - tmp_Ba) - estimator.g;
+    Eigen::Vector3d un_acc_0 = tmp_Q * (acc_0 - tmp_Ba) - estimator.g;//W系下i时刻加速度 a_w = q_wb * (a_b - bias_a) - g_w
 
-    Eigen::Vector3d un_gyr = 0.5 * (gyr_0 + angular_velocity) - tmp_Bg;
-    tmp_Q = tmp_Q * Utility::deltaQ(un_gyr * dt);
+    Eigen::Vector3d un_gyr = 0.5 * (gyr_0 + angular_velocity) - tmp_Bg;//平均角速度
+    tmp_Q = tmp_Q * Utility::deltaQ(un_gyr * dt);//Q_w_b' imu预测的b'系到W系旋转,Utility::deltaQ()函数将旋转角度转换乘四元数
 
-    Eigen::Vector3d un_acc_1 = tmp_Q * (linear_acceleration - tmp_Ba) - estimator.g;
+    Eigen::Vector3d un_acc_1 = tmp_Q * (linear_acceleration - tmp_Ba) - estimator.g;//W系下i+1时刻加速度 a_w = q_wb * (a_b - bias_a) - g_w
 
-    Eigen::Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);
+    Eigen::Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);//平均加速度
 
-    tmp_P = tmp_P + dt * tmp_V + 0.5 * dt * dt * un_acc;
-    tmp_V = tmp_V + dt * un_acc;
+    tmp_P = tmp_P + dt * tmp_V + 0.5 * dt * dt * un_acc;//imu mid-point积分预测的位移
 
-    acc_0 = linear_acceleration;
-    gyr_0 = angular_velocity;
+    tmp_V = tmp_V + dt * un_acc;//imu mid-point积分预测的速度
+
+    acc_0 = linear_acceleration;//前一时刻的线加速度
+    gyr_0 = angular_velocity;//前一时刻的角速度
 }
 
 void update()
@@ -153,7 +154,7 @@ void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
 
     {
         std::lock_guard<std::mutex> lg(m_state);
-        predict(imu_msg);
+        predict(imu_msg);//由IMU数据预测
         std_msgs::Header header = imu_msg->header;
         header.frame_id = "world";
         if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)

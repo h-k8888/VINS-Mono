@@ -18,6 +18,7 @@ queue<sensor_msgs::ImageConstPtr> img_buf;
 ros::Publisher pub_img,pub_match;
 ros::Publisher pub_restart;
 
+//每个相机都有一个FeatureTracker实例，即trackerData[i]
 FeatureTracker trackerData[NUM_OF_CAM];
 double first_image_time;
 int pub_count = 1;
@@ -25,9 +26,17 @@ bool first_image_flag = true;
 double last_image_time = 0;
 bool init_pub = 0;
 
+/**
+ * @brief   ROS的回调函数，对新来的图像进行特征点追踪，发布
+ * @Description readImage()函数对新来的图像使用光流法进行特征点跟踪
+ *              追踪的特征点封装成feature_points发布到pub_img的话题下，
+ *              图像封装成ptr发布在pub_match下
+ * @param[in]   img_msg 输入的图像
+ * @return      void
+*/
 void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
 {
-    if(first_image_flag)
+    if(first_image_flag)//如果是第一张影像
     {
         first_image_flag = false;
         first_image_time = img_msg->header.stamp.toSec();
@@ -61,7 +70,9 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
     else
         PUB_THIS_FRAME = false;
 
+    //Convert an immutable sensor_msgs::Image message to an OpenCV-compatible CvImage
     cv_bridge::CvImageConstPtr ptr;
+    //将图像编码8UC1转换为mono8
     if (img_msg->encoding == "8UC1")
     {
         sensor_msgs::Image img;
@@ -77,13 +88,13 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
     else
         ptr = cv_bridge::toCvCopy(img_msg, sensor_msgs::image_encodings::MONO8);
 
-    cv::Mat show_img = ptr->image;
+    cv::Mat show_img = ptr->image; //记录输入影像
     TicToc t_r;
     for (int i = 0; i < NUM_OF_CAM; i++)
     {
         ROS_DEBUG("processing camera %d", i);
         if (i != 1 || !STEREO_TRACK)
-            trackerData[i].readImage(ptr->image.rowRange(ROW * i, ROW * (i + 1)), img_msg->header.stamp.toSec());
+            trackerData[i].readImage(ptr->image.rowRange(ROW * i, ROW * (i + 1)), img_msg->header.stamp.toSec());//函数内部完成特征提取和跟踪
         else
         {
             if (EQUALIZE)
@@ -110,6 +121,9 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
             break;
     }
 
+    //1、将特征点id，矫正后归一化平面的3D点(x,y,z=1)，像素2D点(u,v)，像素的速度(vx,vy)，
+    //封装成sensor_msgs::PointCloudPtr类型的feature_points实例中,发布到pub_img;
+    //2、将图像封装到cv_bridge::cvtColor类型的ptr实例中发布到pub_match
    if (PUB_THIS_FRAME)
    {
         pub_count++;
@@ -132,11 +146,11 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
             auto &pts_velocity = trackerData[i].pts_velocity;
             for (unsigned int j = 0; j < ids.size(); j++)
             {
-                if (trackerData[i].track_cnt[j] > 1)
+                if (trackerData[i].track_cnt[j] > 1)//跟踪到的次数大于1
                 {
                     int p_id = ids[j];
                     hash_ids[i].insert(p_id);
-                    geometry_msgs::Point32 p;
+                    geometry_msgs::Point32 p;//去畸变归一化坐标
                     p.x = un_pts[j].x;
                     p.y = un_pts[j].y;
                     p.z = 1;
@@ -177,6 +191,7 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
 
                 for (unsigned int j = 0; j < trackerData[i].cur_pts.size(); j++)
                 {
+                    //显示追踪状态，越红越好，越蓝越不行
                     double len = std::min(1.0, 1.0 * trackerData[i].track_cnt[j] / WINDOW_SIZE);
                     cv::circle(tmp_img, trackerData[i].cur_pts[j], 2, cv::Scalar(255 * (1 - len), 0, 255 * len), 2);
                     //draw speed line

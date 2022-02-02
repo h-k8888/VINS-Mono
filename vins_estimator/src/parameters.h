@@ -21,9 +21,9 @@ extern int ESTIMATE_EXTRINSIC;
 extern double ACC_N, ACC_W;
 extern double GYR_N, GYR_W;
 
-extern std::vector<Eigen::Matrix3d> RIC;
-extern std::vector<Eigen::Vector3d> TIC;
-extern Eigen::Vector3d G;
+extern std::vector<Eigen::Matrix3d> RIC;//旋转 I <<-- C
+extern std::vector<Eigen::Vector3d> TIC;//平移 I <<-- C
+extern Eigen::Vector3d G;//重力[0,0,g]
 
 extern double BIAS_ACC_THRESHOLD;
 extern double BIAS_GYR_THRESHOLD;
