@@ -32,7 +32,7 @@ class IntegrationBase
         dt_buf.push_back(dt);
         acc_buf.push_back(acc);
         gyr_buf.push_back(gyr);
-        propagate(dt, acc, gyr);
+        propagate(dt, acc, gyr);//向前传播并更新雅可比
     }
 
     void repropagate(const Eigen::Vector3d &_linearized_ba, const Eigen::Vector3d &_linearized_bg)
@@ -51,6 +51,11 @@ class IntegrationBase
             propagate(dt_buf[i], acc_buf[i], gyr_buf[i]);
     }
 
+    /**
+    * @brief   IMU预积分中采用中值积分递推Jacobian和Covariance
+    *          构造误差的线性化递推方程，得到Jacobian和Covariance递推公式-> Paper 式9、10、11
+    * @return  void
+    */
     void midPointIntegration(double _dt, 
                             const Eigen::Vector3d &_acc_0, const Eigen::Vector3d &_gyr_0,
                             const Eigen::Vector3d &_acc_1, const Eigen::Vector3d &_gyr_1,
@@ -60,23 +65,24 @@ class IntegrationBase
                             Eigen::Vector3d &result_linearized_ba, Eigen::Vector3d &result_linearized_bg, bool update_jacobian)
     {
         //ROS_INFO("midpoint integration");
-        Vector3d un_acc_0 = delta_q * (_acc_0 - linearized_ba);
-        Vector3d un_gyr = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;
-        result_delta_q = delta_q * Quaterniond(1, un_gyr(0) * _dt / 2, un_gyr(1) * _dt / 2, un_gyr(2) * _dt / 2);
-        Vector3d un_acc_1 = result_delta_q * (_acc_1 - linearized_ba);
-        Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);
-        result_delta_p = delta_p + delta_v * _dt + 0.5 * un_acc * _dt * _dt;
-        result_delta_v = delta_v + un_acc * _dt;
-        result_linearized_ba = linearized_ba;
+        Vector3d un_acc_0 = delta_q * (_acc_0 - linearized_ba);//积分起始的body系下，前一加速度
+        Vector3d un_gyr = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg; //角速度均值
+        result_delta_q = delta_q * Quaterniond(1, un_gyr(0) * _dt / 2, un_gyr(1) * _dt / 2, un_gyr(2) * _dt / 2);//当前IMU的body相对于起始的旋转
+        Vector3d un_acc_1 = result_delta_q * (_acc_1 - linearized_ba);//积分起始的body系下，当前加速度
+        Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);//积分起始的body系下，加速度均值
+        result_delta_p = delta_p + delta_v * _dt + 0.5 * un_acc * _dt * _dt;//位移
+        result_delta_v = delta_v + un_acc * _dt;//速度
+        result_linearized_ba = linearized_ba;//bias不变
         result_linearized_bg = linearized_bg;         
 
         if(update_jacobian)
         {
-            Vector3d w_x = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;
-            Vector3d a_0_x = _acc_0 - linearized_ba;
-            Vector3d a_1_x = _acc_1 - linearized_ba;
+            Vector3d w_x = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;//角速度均值
+            Vector3d a_0_x = _acc_0 - linearized_ba;//前一时刻body系下的加速度
+            Vector3d a_1_x = _acc_1 - linearized_ba;//当前时刻body系下的加速度
             Matrix3d R_w_x, R_a_0_x, R_a_1_x;
 
+            //反对称矩阵
             R_w_x<<0, -w_x(2), w_x(1),
                 w_x(2), 0, -w_x(0),
                 -w_x(1), w_x(0), 0;
@@ -87,11 +93,12 @@ class IntegrationBase
                 a_1_x(2), 0, -a_1_x(0),
                 -a_1_x(1), a_1_x(0), 0;
 
+            //当前状态量对前一时刻IMU数据预测的状态量的雅可比
             MatrixXd F = MatrixXd::Zero(15, 15);
             F.block<3, 3>(0, 0) = Matrix3d::Identity();
             F.block<3, 3>(0, 3) = -0.25 * delta_q.toRotationMatrix() * R_a_0_x * _dt * _dt + 
-                                  -0.25 * result_delta_q.toRotationMatrix() * R_a_1_x * (Matrix3d::Identity() - R_w_x * _dt) * _dt * _dt;
-            F.block<3, 3>(0, 6) = MatrixXd::Identity(3,3) * _dt;
+                                  -0.25 * result_delta_q.toRotationMatrix() * R_a_1_x * (Matrix3d::Identity() - R_w_x * _dt) * _dt * _dt;//alpha对theta
+            F.block<3, 3>(0, 6) = MatrixXd::Identity(3,3) * _dt;//alpha对beta
             F.block<3, 3>(0, 9) = -0.25 * (delta_q.toRotationMatrix() + result_delta_q.toRotationMatrix()) * _dt * _dt;
             F.block<3, 3>(0, 12) = -0.25 * result_delta_q.toRotationMatrix() * R_a_1_x * _dt * _dt * -_dt;
             F.block<3, 3>(3, 3) = Matrix3d::Identity() - R_w_x * _dt;
@@ -105,6 +112,7 @@ class IntegrationBase
             F.block<3, 3>(12, 12) = Matrix3d::Identity();
             //cout<<"A"<<endl<<A<<endl;
 
+            //噪声的雅可比
             MatrixXd V = MatrixXd::Zero(15,18);
             V.block<3, 3>(0, 0) =  0.25 * delta_q.toRotationMatrix() * _dt * _dt;
             V.block<3, 3>(0, 3) =  0.25 * -result_delta_q.toRotationMatrix() * R_a_1_x  * _dt * _dt * 0.5 * _dt;
@@ -121,12 +129,23 @@ class IntegrationBase
 
             //step_jacobian = F;
             //step_V = V;
-            jacobian = F * jacobian;
-            covariance = F * covariance * F.transpose() + V * noise * V.transpose();
+            jacobian = F * jacobian;//维护最新的状态量雅可比
+            covariance = F * covariance * F.transpose() + V * noise * V.transpose();//更新状态的协方差矩阵
         }
 
     }
 
+    /**
+    * @brief   IMU预积分传播方程
+    * @Description  积分计算两个关键帧之间IMU测量的变化量：
+    *               旋转delta_q 速度delta_v 位移delta_p
+    *               加速度的biaslinearized_ba 陀螺仪的Bias linearized_bg
+    *               同时维护更新预积分的Jacobian和Covariance,计算优化时必要的参数
+    * @param[in]   _dt 时间间隔
+    * @param[in]   _acc_1 线加速度
+    * @param[in]   _gyr_1 角速度
+    * @return  void
+    */
     void propagate(double _dt, const Eigen::Vector3d &_acc_1, const Eigen::Vector3d &_gyr_1)
     {
         dt = _dt;
@@ -138,6 +157,11 @@ class IntegrationBase
         Vector3d result_linearized_ba;
         Vector3d result_linearized_bg;
 
+        /**
+        * @brief   IMU预积分中采用中值积分递推Jacobian和Covariance
+        *          构造误差的线性化递推方程，得到Jacobian和Covariance递推公式-> Paper 式9、10、11
+        * @return  void
+        */
         midPointIntegration(_dt, acc_0, gyr_0, _acc_1, _gyr_1, delta_p, delta_q, delta_v,
                             linearized_ba, linearized_bg,
                             result_delta_p, result_delta_q, result_delta_v,
@@ -145,6 +169,7 @@ class IntegrationBase
 
         //checkJacobian(_dt, acc_0, gyr_0, acc_1, gyr_1, delta_p, delta_q, delta_v,
         //                    linearized_ba, linearized_bg);
+        //记录当前状态量为上一状态量
         delta_p = result_delta_p;
         delta_q = result_delta_q;
         delta_v = result_delta_v;
@@ -186,8 +211,8 @@ class IntegrationBase
     }
 
     double dt;
-    Eigen::Vector3d acc_0, gyr_0;
-    Eigen::Vector3d acc_1, gyr_1;
+    Eigen::Vector3d acc_0, gyr_0;//前一IMU数据观测值
+    Eigen::Vector3d acc_1, gyr_1;//当前IMU数据观测值
 
     const Eigen::Vector3d linearized_acc, linearized_gyr;
     Eigen::Vector3d linearized_ba, linearized_bg;
@@ -198,7 +223,7 @@ class IntegrationBase
     Eigen::Matrix<double, 18, 18> noise;
 
     double sum_dt;
-    Eigen::Vector3d delta_p;
+    Eigen::Vector3d delta_p;//起始积分body系下，状态量增量
     Eigen::Quaterniond delta_q;
     Eigen::Vector3d delta_v;
 

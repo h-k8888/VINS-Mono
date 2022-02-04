@@ -15,6 +15,7 @@ using namespace Eigen;
 
 #include "parameters.h"
 
+//特征点在对应帧的状态
 class FeaturePerFrame
 {
   public:
@@ -44,7 +45,7 @@ class FeaturePerFrame
 class FeaturePerId
 {
   public:
-    const int feature_id;
+    const int feature_id;//特征点索引
     int start_frame;
     vector<FeaturePerFrame> feature_per_frame;
 

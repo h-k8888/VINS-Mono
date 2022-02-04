@@ -41,32 +41,41 @@ int FeatureManager::getFeatureCount()
     return cnt;
 }
 
-
+/**
+ * @brief   把特征点放入feature的list容器中，计算每一个点跟踪次数和它在次新帧和次次新帧间的视差，返回是否是关键帧
+ * @param[in]   frame_count 窗口内帧的个数
+ * @param[in]   image 某帧所有特征点的[camera_id,[x,y,z,u,v,vx,vy]]s构成的map,索引为feature_id
+ * @param[in]   td IMU和cam同步时间差
+ * @return  bool true：次新帧是关键帧;false：非关键帧
+*/
 bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td)
 {
     ROS_DEBUG("input feature: %d", (int)image.size());
     ROS_DEBUG("num of feature: %d", getFeatureCount());
     double parallax_sum = 0;
     int parallax_num = 0;
-    last_track_num = 0;
+    last_track_num = 0;//跟踪到的特征数
+    //把image map中的所有特征点放入feature list容器中
     for (auto &id_pts : image)
     {
-        FeaturePerFrame f_per_fra(id_pts.second[0].second, td);
+        FeaturePerFrame f_per_fra(id_pts.second[0].second, td);//当前帧内的特征
 
-        int feature_id = id_pts.first;
+        int feature_id = id_pts.first;//特征点索引
+        //查找是否已有当前特征点索引
         auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
                           {
             return it.feature_id == feature_id;
                           });
 
+        //新特征点
         if (it == feature.end())
         {
-            feature.push_back(FeaturePerId(feature_id, frame_count));
-            feature.back().feature_per_frame.push_back(f_per_fra);
+            feature.push_back(FeaturePerId(feature_id, frame_count));//记录新特征点的索引和第一次观测到的帧索引
+            feature.back().feature_per_frame.push_back(f_per_fra);//记录特征点信息
         }
         else if (it->feature_id == feature_id)
         {
-            it->feature_per_frame.push_back(f_per_fra);
+            it->feature_per_frame.push_back(f_per_fra);//记录当前feature在当前帧的状态
             last_track_num++;
         }
     }
@@ -74,8 +83,10 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
     if (frame_count < 2 || last_track_num < 20)
         return true;
 
+    //计算每个特征在次新帧和次次新帧中的视差
     for (auto &it_per_id : feature)
     {
+        //特征所在多于2帧观察到，在次新帧也观察到
         if (it_per_id.start_frame <= frame_count - 2 &&
             it_per_id.start_frame + int(it_per_id.feature_per_frame.size()) - 1 >= frame_count - 1)
         {
@@ -117,6 +128,7 @@ void FeatureManager::debugShow()
     }
 }
 
+//找左右两帧的共同特征点
 vector<pair<Vector3d, Vector3d>> FeatureManager::getCorresponding(int frame_count_l, int frame_count_r)
 {
     vector<pair<Vector3d, Vector3d>> corres;
@@ -352,6 +364,7 @@ void FeatureManager::removeFront(int frame_count)
     }
 }
 
+//计算某个特征点it_per_id在次新帧和次次新帧的视差
 double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int frame_count)
 {
     //check the second last frame is keyframe or not
@@ -360,7 +373,7 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
     const FeaturePerFrame &frame_j = it_per_id.feature_per_frame[frame_count - 1 - it_per_id.start_frame];
 
     double ans = 0;
-    Vector3d p_j = frame_j.point;
+    Vector3d p_j = frame_j.point;//3D特征
 
     double u_j = p_j(0);
     double v_j = p_j(1);
