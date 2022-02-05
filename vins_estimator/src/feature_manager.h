@@ -15,7 +15,7 @@ using namespace Eigen;
 
 #include "parameters.h"
 
-//特征点在对应帧的状态
+//特征点在对应图像帧的信息
 class FeaturePerFrame
 {
   public:
@@ -47,7 +47,7 @@ class FeaturePerId
   public:
     const int feature_id;//特征点索引
     int start_frame;
-    vector<FeaturePerFrame> feature_per_frame;
+    vector<FeaturePerFrame> feature_per_frame;//由多个连续图像观测到
 
     int used_num;
     bool is_outlier;
@@ -91,7 +91,7 @@ class FeatureManager
     void removeBack();
     void removeFront(int frame_count);
     void removeOutlier();
-    list<FeaturePerId> feature;
+    list<FeaturePerId> feature;//滑窗内所有的路标点
     int last_track_num;
 
   private:

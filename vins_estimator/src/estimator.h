@@ -81,7 +81,7 @@ class Estimator
 
     Matrix3d back_R0, last_R, last_R0;
     Vector3d back_P0, last_P, last_P0;
-    std_msgs::Header Headers[(WINDOW_SIZE + 1)];
+    std_msgs::Header Headers[(WINDOW_SIZE + 1)];//滑窗内时间戳
 
     IntegrationBase *pre_integrations[(WINDOW_SIZE + 1)]; //滑窗预积分
     Vector3d acc_0, gyr_0; //前一IMU时刻加速度和陀螺仪的观测值
@@ -121,7 +121,7 @@ class Estimator
     MarginalizationInfo *last_marginalization_info;
     vector<double *> last_marginalization_parameter_blocks;
 
-    map<double, ImageFrame> all_image_frame;
+    map<double, ImageFrame> all_image_frame;//时间戳，图像
     IntegrationBase *tmp_pre_integration;//预积分
 
     //relocalization variable

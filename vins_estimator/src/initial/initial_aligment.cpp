@@ -1,10 +1,19 @@
 #include "initial_alignment.h"
 
+/**
+ * @brief   陀螺仪偏置校正
+ * @optional    根据视觉SFM的结果来校正陀螺仪Bias -> Paper V-B-1
+ *              主要是将相邻帧之间SFM求解出来的旋转矩阵与IMU预积分的旋转量对齐
+ *              注意得到了新的Bias后对应的预积分需要repropagate
+ * @param[in]   all_image_frame所有图像帧构成的map,图像帧保存了位姿、预积分量和关于角点的信息
+ * @param[out]  Bgs 陀螺仪偏置
+ * @return      void
+*/
 void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
 {
     Matrix3d A;
     Vector3d b;
-    Vector3d delta_bg;
+    Vector3d delta_bg;//bias增量
     A.setZero();
     b.setZero();
     map<double, ImageFrame>::iterator frame_i;
@@ -16,14 +25,16 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
         tmp_A.setZero();
         VectorXd tmp_b(3);
         tmp_b.setZero();
-        Eigen::Quaterniond q_ij(frame_i->second.R.transpose() * frame_j->second.R);
-        tmp_A = frame_j->second.pre_integration->jacobian.template block<3, 3>(O_R, O_BG);
+        Eigen::Quaterniond q_ij(frame_i->second.R.transpose() * frame_j->second.R);//相机旋转q i <-- j
+        tmp_A = frame_j->second.pre_integration->jacobian.template block<3, 3>(O_R, O_BG);//tmp_A = J_j_bw
+        //tmp_b = 2 * (r^bk_bk+1)^-1 * (q^c0_bk)^-1 * (q^c0_bk+1)
+        //      = 2 * (r_imu_ij)^-1 * q_ij
         tmp_b = 2 * (frame_j->second.pre_integration->delta_q.inverse() * q_ij).vec();
         A += tmp_A.transpose() * tmp_A;
         b += tmp_A.transpose() * tmp_b;
 
     }
-    delta_bg = A.ldlt().solve(b);
+    delta_bg = A.ldlt().solve(b);//LDLT方法
     ROS_WARN_STREAM("gyroscope bias initial calibration " << delta_bg.transpose());
 
     for (int i = 0; i <= WINDOW_SIZE; i++)
@@ -198,7 +209,7 @@ bool LinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vect
 
 bool VisualIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs, Vector3d &g, VectorXd &x)
 {
-    solveGyroscopeBias(all_image_frame, Bgs);
+    solveGyroscopeBias(all_image_frame, Bgs);//计算陀螺仪偏置，然后重新对IMU积分
 
     if(LinearAlignment(all_image_frame, g, x))
         return true;

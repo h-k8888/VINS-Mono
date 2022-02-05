@@ -30,7 +30,7 @@ private:
     vector< Matrix3d > Rc;
     vector< Matrix3d > Rimu;
     vector< Matrix3d > Rc_g;
-    Matrix3d ric;
+    Matrix3d ric;//imu <-- camera
 };
 
 

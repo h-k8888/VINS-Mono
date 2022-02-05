@@ -12,14 +12,14 @@ using namespace Eigen;
 using namespace std;
 
 
-
+//每个sfm特征路标由多个连续图像观测到
 struct SFMFeature
 {
-    bool state;
+    bool state;//特征点的状态（是否被三角化）
     int id;
-    vector<pair<int,Vector2d>> observation;
-    double position[3];
-    double depth;
+    vector<pair<int,Vector2d>> observation;//所有观测到该特征点的图像帧ID和图像坐标
+    double position[3];//3d坐标
+    double depth;//深度
 };
 
 struct ReprojectionError3D
