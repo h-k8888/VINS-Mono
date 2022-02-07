@@ -2,19 +2,21 @@
 
 void ResidualBlockInfo::Evaluate()
 {
-    residuals.resize(cost_function->num_residuals());
+    residuals.resize(cost_function->num_residuals());// 确定残差的维数
 
-    std::vector<int> block_sizes = cost_function->parameter_block_sizes();
-    raw_jacobians = new double *[block_sizes.size()];
+    std::vector<int> block_sizes = cost_function->parameter_block_sizes();// 确定相关的参数块数目
+    raw_jacobians = new double *[block_sizes.size()];// ceres接口都是double数组，因此这里给雅克比准备数组
     jacobians.resize(block_sizes.size());
 
+    // 把jacobians每个matrix地址赋给raw_jacobians，然后把raw_jacobians传递给ceres的接口，这样计算结果直接放进了这个matrix
     for (int i = 0; i < static_cast<int>(block_sizes.size()); i++)
     {
-        jacobians[i].resize(cost_function->num_residuals(), block_sizes[i]);
+        jacobians[i].resize(cost_function->num_residuals(), block_sizes[i]); // 雅克比矩阵大小 残差×变量
         raw_jacobians[i] = jacobians[i].data();
         //dim += block_sizes[i] == 7 ? 6 : block_sizes[i];
     }
-    cost_function->Evaluate(parameter_blocks.data(), residuals.data(), raw_jacobians);
+    // 调用各自重载的接口计算残差和雅克比
+    cost_function->Evaluate(parameter_blocks.data(), residuals.data(), raw_jacobians);// 这里实际上结果放在了jacobians
 
     //std::vector<int> tmp_idx(block_sizes.size());
     //Eigen::MatrixXd tmp(dim, dim);
@@ -34,19 +36,20 @@ void ResidualBlockInfo::Evaluate()
     //std::cout << saes.eigenvalues() << std::endl;
     //ROS_ASSERT(saes.eigenvalues().minCoeff() >= -1e-6);
 
+    // 如果有核函数，那么就对残差进行相关调整
     if (loss_function)
     {
         double residual_scaling_, alpha_sq_norm_;
 
         double sq_norm, rho[3];
 
-        sq_norm = residuals.squaredNorm();
-        loss_function->Evaluate(sq_norm, rho);
+        sq_norm = residuals.squaredNorm();// 获得残差的模
+        loss_function->Evaluate(sq_norm, rho);// rho[0]:核函数这个点的值 rho[1]这个点的导数 rho[2]这个点的二阶导数
         //printf("sq_norm: %f, rho[0]: %f, rho[1]: %f, rho[2]: %f\n", sq_norm, rho[0], rho[1], rho[2]);
 
         double sqrt_rho1_ = sqrt(rho[1]);
 
-        if ((sq_norm == 0.0) || (rho[2] <= 0.0))
+        if ((sq_norm == 0.0) || (rho[2] <= 0.0))// 柯西核p = log(s+1),rho[2]<＝0始终成立，一般核函数二阶导数都是小于0
         {
             residual_scaling_ = sqrt_rho1_;
             alpha_sq_norm_ = 0.0;
@@ -59,6 +62,7 @@ void ResidualBlockInfo::Evaluate()
             alpha_sq_norm_ = alpha / sq_norm;
         }
 
+        // 这里就相当于残差雅克比都乘上sqrt_rho1_，及核函数所在的点的一阶导，基本都是小于1
         for (int i = 0; i < static_cast<int>(parameter_blocks.size()); i++)
         {
             jacobians[i] = sqrt_rho1_ * (jacobians[i] - alpha_sq_norm_ * residuals * (residuals.transpose() * jacobians[i]));
@@ -86,23 +90,31 @@ MarginalizationInfo::~MarginalizationInfo()
     }
 }
 
+/**
+ * @brief 收集各个残差
+ *
+ * @param[in] residual_block_info
+ */
 void MarginalizationInfo::addResidualBlockInfo(ResidualBlockInfo *residual_block_info)
 {
-    factors.emplace_back(residual_block_info);
+    factors.emplace_back(residual_block_info);// 残差块收集起来
 
-    std::vector<double *> &parameter_blocks = residual_block_info->parameter_blocks;
-    std::vector<int> parameter_block_sizes = residual_block_info->cost_function->parameter_block_sizes();
+    std::vector<double *> &parameter_blocks = residual_block_info->parameter_blocks;// 和该约束相关的参数块
+    std::vector<int> parameter_block_sizes = residual_block_info->cost_function->parameter_block_sizes();// 各个参数块的大小
 
     for (int i = 0; i < static_cast<int>(residual_block_info->parameter_blocks.size()); i++)
     {
         double *addr = parameter_blocks[i];
         int size = parameter_block_sizes[i];
-        parameter_block_size[reinterpret_cast<long>(addr)] = size;
+        // 这里是个map，避免重复添加
+        parameter_block_size[reinterpret_cast<long>(addr)] = size;// 地址->global size
     }
 
+    // 待边缘化的参数块
     for (int i = 0; i < static_cast<int>(residual_block_info->drop_set.size()); i++)
     {
         double *addr = parameter_blocks[residual_block_info->drop_set[i]];
+        // 先准备好待边缘化的参数块的map
         parameter_block_idx[reinterpret_cast<long>(addr)] = 0;
     }
 }
@@ -318,18 +330,33 @@ std::vector<double *> MarginalizationInfo::getParameterBlocks(std::unordered_map
     return keep_block_addr;
 }
 
+/**
+ * @brief Construct a new Marginalization Factor:: Marginalization Factor object
+ * 边缘化信息结果的构造函数，根据边缘化信息确定参数块总数和大小以及残差维数
+ *
+ * @param[in] _marginalization_info
+ */
 MarginalizationFactor::MarginalizationFactor(MarginalizationInfo* _marginalization_info):marginalization_info(_marginalization_info)
 {
     int cnt = 0;
-    for (auto it : marginalization_info->keep_block_size)
+    for (auto it : marginalization_info->keep_block_size)// keep_block_size表示上一次边缘化留下来的参数块的大小
     {
-        mutable_parameter_block_sizes()->push_back(it);
+        mutable_parameter_block_sizes()->push_back(it);// 调用ceres接口，添加参数块大小信息
         cnt += it;
     }
     //printf("residual size: %d, %d\n", cnt, n);
-    set_num_residuals(marginalization_info->n);
+    set_num_residuals(marginalization_info->n);// 残差维数就是所有剩余状态量的维数和，这里是local size
 };
 
+/**
+ * @brief 边缘化结果残差和雅克比的计算
+ *
+ * @param[in] parameters
+ * @param[in] residuals
+ * @param[in] jacobians
+ * @return true
+ * @return false
+ */
 bool MarginalizationFactor::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
 {
     //printf("internal addr,%d, %d\n", (int)parameter_block_sizes().size(), num_residuals());
@@ -340,27 +367,35 @@ bool MarginalizationFactor::Evaluate(double const *const *parameters, double *re
     //printf("jacobian %x\n", reinterpret_cast<long>(jacobians));
     //printf("residual %x\n", reinterpret_cast<long>(residuals));
     //}
-    int n = marginalization_info->n;
-    int m = marginalization_info->m;
-    Eigen::VectorXd dx(n);
+    int n = marginalization_info->n; // 上一次边缘化保留的残差块的local size的和,也就是残差维数
+    int m = marginalization_info->m; // 上次边缘化的被margin的残差块总和
+    Eigen::VectorXd dx(n);// 用来存储残差
+
+    // 遍历所有的剩下的有约束的残差块
     for (int i = 0; i < static_cast<int>(marginalization_info->keep_block_size.size()); i++)
     {
         int size = marginalization_info->keep_block_size[i];
-        int idx = marginalization_info->keep_block_idx[i] - m;
-        Eigen::VectorXd x = Eigen::Map<const Eigen::VectorXd>(parameters[i], size);
-        Eigen::VectorXd x0 = Eigen::Map<const Eigen::VectorXd>(marginalization_info->keep_block_data[i], size);
+        int idx = marginalization_info->keep_block_idx[i] - m; // idx起点统一到0
+        Eigen::VectorXd x = Eigen::Map<const Eigen::VectorXd>(parameters[i], size); // 当前参数块的值
+        Eigen::VectorXd x0 = Eigen::Map<const Eigen::VectorXd>(marginalization_info->keep_block_data[i], size);// 当时参数块的值
         if (size != 7)
-            dx.segment(idx, size) = x - x0;
-        else
+            dx.segment(idx, size) = x - x0;// 不需要local param的直接做差
+        else// 代表位姿的param
         {
-            dx.segment<3>(idx + 0) = x.head<3>() - x0.head<3>();
+            dx.segment<3>(idx + 0) = x.head<3>() - x0.head<3>(); // 位移直接做差
+            // 旋转就是李代数做差
             dx.segment<3>(idx + 3) = 2.0 * Utility::positify(Eigen::Quaterniond(x0(6), x0(3), x0(4), x0(5)).inverse() * Eigen::Quaterniond(x(6), x(3), x(4), x(5))).vec();
+            // 确保实部大于0
             if (!((Eigen::Quaterniond(x0(6), x0(3), x0(4), x0(5)).inverse() * Eigen::Quaterniond(x(6), x(3), x(4), x(5))).w() >= 0))
             {
                 dx.segment<3>(idx + 3) = 2.0 * -Utility::positify(Eigen::Quaterniond(x0(6), x0(3), x0(4), x0(5)).inverse() * Eigen::Quaterniond(x(6), x(3), x(4), x(5))).vec();
             }
         }
     }
+
+    // 更新残差　边缘化后的先验误差 e = e0 + J * dx
+    // 个人理解：根据FEJ．雅克比保持不变，但是残差随着优化会变化，因此下面不更新雅克比　只更新残差
+    // 可以参考　https://blog.csdn.net/weixin_41394379/article/details/89975386
     Eigen::Map<Eigen::VectorXd>(residuals, n) = marginalization_info->linearized_residuals + marginalization_info->linearized_jacobians * dx;
     if (jacobians)
     {

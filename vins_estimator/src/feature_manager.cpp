@@ -25,6 +25,7 @@ void FeatureManager::clearState()
     feature.clear();
 }
 
+//返回出现次数>=2，且不是最近两帧出现的特征数量
 int FeatureManager::getFeatureCount()
 {
     int cnt = 0;
@@ -195,7 +196,7 @@ void FeatureManager::clearDepth(const VectorXd &x)
 
 VectorXd FeatureManager::getDepthVector()
 {
-    VectorXd dep_vec(getFeatureCount());
+    VectorXd dep_vec(getFeatureCount());//返回出现次数>=2，且不是最近两帧出现的特征数量
     int feature_index = -1;
     for (auto &it_per_id : feature)
     {
@@ -203,7 +204,7 @@ VectorXd FeatureManager::getDepthVector()
         if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
             continue;
 #if 1
-        dep_vec(++feature_index) = 1. / it_per_id.estimated_depth;
+        dep_vec(++feature_index) = 1. / it_per_id.estimated_depth;//逆深度
 #else
         dep_vec(++feature_index) = it_per_id->estimated_depth;
 #endif
@@ -211,40 +212,50 @@ VectorXd FeatureManager::getDepthVector()
     return dep_vec;
 }
 
+//对特征点进行三角化求深度（SVD分解）
 void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
 {
+    //遍历每一个特征
     for (auto &it_per_id : feature)
     {
-        it_per_id.used_num = it_per_id.feature_per_frame.size();
-        if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
+        it_per_id.used_num = it_per_id.feature_per_frame.size();//特征出现帧数
+        if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))//出现太少或出现太晚
             continue;
 
         if (it_per_id.estimated_depth > 0)
             continue;
+        //特征第一次出现在i帧，以下已i帧为参考系，恢复深度
         int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
 
         ROS_ASSERT(NUM_OF_CAM == 1);
         Eigen::MatrixXd svd_A(2 * it_per_id.feature_per_frame.size(), 4);
         int svd_idx = 0;
 
+        //R0 t0为第i帧相机坐标系到世界坐标系的变换矩阵
         Eigen::Matrix<double, 3, 4> P0;
         Eigen::Vector3d t0 = Ps[imu_i] + Rs[imu_i] * tic[0];
         Eigen::Matrix3d R0 = Rs[imu_i] * ric[0];
         P0.leftCols<3>() = Eigen::Matrix3d::Identity();
         P0.rightCols<1>() = Eigen::Vector3d::Zero();
 
-        for (auto &it_per_frame : it_per_id.feature_per_frame)
+        for (auto &it_per_frame : it_per_id.feature_per_frame)//遍历此特征出现的所有帧
         {
             imu_j++;
-
-            Eigen::Vector3d t1 = Ps[imu_j] + Rs[imu_j] * tic[0];
-            Eigen::Matrix3d R1 = Rs[imu_j] * ric[0];
+            //R t为第j帧相机坐标系到第i帧相机坐标系的变换矩阵，P为i到j的变换矩阵
+            Eigen::Vector3d t1 = Ps[imu_j] + Rs[imu_j] * tic[0];//W系下j帧相机位置
+            Eigen::Matrix3d R1 = Rs[imu_j] * ric[0];//W系下j帧相机姿态
             Eigen::Vector3d t = R0.transpose() * (t1 - t0);
-            Eigen::Matrix3d R = R0.transpose() * R1;
-            Eigen::Matrix<double, 3, 4> P;
+            Eigen::Matrix3d R = R0.transpose() * R1;//camera: i <-- j
+            Eigen::Matrix<double, 3, 4> P;//camera: i <-- j
             P.leftCols<3>() = R.transpose();
             P.rightCols<1>() = -R.transpose() * t;
             Eigen::Vector3d f = it_per_frame.point.normalized();
+            //P = [P1 P2 P3]^T
+            //AX=0      A = [A(2*i) A(2*i+1) A(2*i+2) A(2*i+3) ...]^T
+            //A(2*i)   = x(i) * P3 - z(i) * P1
+            //A(2*i+1) = y(i) * P3 - z(i) * P2
+            // x = P * X
+            // x ^ P * X = 0
             svd_A.row(svd_idx++) = f[0] * P.row(2) - f[2] * P.row(0);
             svd_A.row(svd_idx++) = f[1] * P.row(2) - f[2] * P.row(1);
 
@@ -253,7 +264,7 @@ void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
         }
         ROS_ASSERT(svd_idx == svd_A.rows());
         Eigen::Vector4d svd_V = Eigen::JacobiSVD<Eigen::MatrixXd>(svd_A, Eigen::ComputeThinV).matrixV().rightCols<1>();
-        double svd_method = svd_V[2] / svd_V[3];
+        double svd_method = svd_V[2] / svd_V[3];//其次坐标下，需要z / w得到深度
         //it_per_id->estimated_depth = -b / A;
         //it_per_id->estimated_depth = svd_V[2] / svd_V[3];
 

@@ -12,8 +12,10 @@
 
 const int NUM_THREADS = 4;
 
+//观测项
 struct ResidualBlockInfo
 {
+    // 构造函数需要，cost function（约束），loss function：残差的计算方式，相关联的参数块，待边缘化的参数块的索引
     ResidualBlockInfo(ceres::CostFunction *_cost_function, ceres::LossFunction *_loss_function, std::vector<double *> _parameter_blocks, std::vector<int> _drop_set)
         : cost_function(_cost_function), loss_function(_loss_function), parameter_blocks(_parameter_blocks), drop_set(_drop_set) {}
 
@@ -21,12 +23,12 @@ struct ResidualBlockInfo
 
     ceres::CostFunction *cost_function;
     ceres::LossFunction *loss_function;
-    std::vector<double *> parameter_blocks;
-    std::vector<int> drop_set;
+    std::vector<double *> parameter_blocks;//优化变量数据, 和该约束相关的参数块
+    std::vector<int> drop_set;//待边缘化的优化变量id
 
     double **raw_jacobians;
     std::vector<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> jacobians;
-    Eigen::VectorXd residuals;
+    Eigen::VectorXd residuals;//残差 IMU:15X1 视觉2X1
 
     int localSize(int size)
     {
@@ -54,14 +56,16 @@ class MarginalizationInfo
     void marginalize();
     std::vector<double *> getParameterBlocks(std::unordered_map<long, double *> &addr_shift);
 
-    std::vector<ResidualBlockInfo *> factors;
+    std::vector<ResidualBlockInfo *> factors;//所有观测项
+    //m为要marg掉的变量个数，也就是parameter_block_idx的总localSize，以double为单位，VBias为9，PQ为6
+    //n为要保留下来的优化变量的变量个数， n = localSize(parameter_block_size) - m
     int m, n;
-    std::unordered_map<long, int> parameter_block_size; //global size
+    std::unordered_map<long, int> parameter_block_size; //global size <优化变量内存地址,localSize>
     int sum_block_size;
-    std::unordered_map<long, int> parameter_block_idx; //local size
-    std::unordered_map<long, double *> parameter_block_data;
+    std::unordered_map<long, int> parameter_block_idx; //local size <待边缘化的优化变量内存地址,在parameter_block_size中的id>
+    std::unordered_map<long, double *> parameter_block_data;//<优化变量内存地址,数据>
 
-    std::vector<int> keep_block_size; //global size
+    std::vector<int> keep_block_size; //global size  表示上一次边缘化留下来的参数块的大小
     std::vector<int> keep_block_idx;  //local size
     std::vector<double *> keep_block_data;
 
@@ -71,6 +75,7 @@ class MarginalizationInfo
 
 };
 
+// 由于边缘化的costfuntion不是固定大小的，因此只能继承最基本的类
 class MarginalizationFactor : public ceres::CostFunction
 {
   public:

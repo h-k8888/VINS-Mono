@@ -72,7 +72,7 @@ class Estimator
     Vector3d tic[NUM_OF_CAM];
 
     //滑窗中的[P,V,R,Ba,Bg]
-    Vector3d Ps[(WINDOW_SIZE + 1)];
+    Vector3d Ps[(WINDOW_SIZE + 1)];//eigen
     Vector3d Vs[(WINDOW_SIZE + 1)];
     Matrix3d Rs[(WINDOW_SIZE + 1)];
     Vector3d Bas[(WINDOW_SIZE + 1)];
@@ -108,18 +108,18 @@ class Estimator
     double initial_timestamp;
 
 
-    double para_Pose[WINDOW_SIZE + 1][SIZE_POSE];
+    double para_Pose[WINDOW_SIZE + 1][SIZE_POSE];//滑窗内的位姿，P和Q，double类型用于ceres优化
     double para_SpeedBias[WINDOW_SIZE + 1][SIZE_SPEEDBIAS];
     double para_Feature[NUM_OF_F][SIZE_FEATURE];
     double para_Ex_Pose[NUM_OF_CAM][SIZE_POSE];
     double para_Retrive_Pose[SIZE_POSE];
-    double para_Td[1][1];
+    double para_Td[1][1];//数据采集和接收的时间差
     double para_Tr[1][1];
 
     int loop_window_index;
 
     MarginalizationInfo *last_marginalization_info;
-    vector<double *> last_marginalization_parameter_blocks;
+    vector<double *> last_marginalization_parameter_blocks;//ceres优化时，边缘化传入的数据
 
     map<double, ImageFrame> all_image_frame;//时间戳，图像
     IntegrationBase *tmp_pre_integration;//预积分

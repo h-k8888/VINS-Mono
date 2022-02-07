@@ -31,7 +31,7 @@ class FeaturePerFrame
         cur_td = td;
     }
     double cur_td;
-    Vector3d point;
+    Vector3d point;//归一化相机系坐标
     Vector2d uv;
     Vector2d velocity;
     double z;
@@ -52,7 +52,7 @@ class FeaturePerId
     int used_num;
     bool is_outlier;
     bool is_margin;
-    double estimated_depth;
+    double estimated_depth;//深度
     int solve_flag; // 0 haven't solve yet; 1 solve succ; 2 solve fail;
 
     Vector3d gt_p;
@@ -96,7 +96,7 @@ class FeatureManager
 
   private:
     double compensatedParallax2(const FeaturePerId &it_per_id, int frame_count);
-    const Matrix3d *Rs;
+    const Matrix3d *Rs;//每帧的姿态
     Matrix3d ric[NUM_OF_CAM];
 };
 
