@@ -119,22 +119,27 @@ void MarginalizationInfo::addResidualBlockInfo(ResidualBlockInfo *residual_block
     }
 }
 
+/**
+ * @brief 将各个残差块计算残差和雅克比，同时备份所有相关的参数块内容
+ *
+ */
 void MarginalizationInfo::preMarginalize()
 {
     for (auto it : factors)
     {
-        it->Evaluate();
+        it->Evaluate();// 调用这个接口计算各个残差块的残差和雅克比矩阵
 
-        std::vector<int> block_sizes = it->cost_function->parameter_block_sizes();
+        std::vector<int> block_sizes = it->cost_function->parameter_block_sizes();// 得到残差的块数
         for (int i = 0; i < static_cast<int>(block_sizes.size()); i++)
         {
-            long addr = reinterpret_cast<long>(it->parameter_blocks[i]);
-            int size = block_sizes[i];
+            long addr = reinterpret_cast<long>(it->parameter_blocks[i]);// 得到该参数块的地址
+            int size = block_sizes[i];// 参数块大小
+            // 把各个参数块都备份起来，使用map避免重复参数块，之所以备份，是为了后面的状态保留
             if (parameter_block_data.find(addr) == parameter_block_data.end())
             {
                 double *data = new double[size];
-                memcpy(data, it->parameter_blocks[i], sizeof(double) * size);
-                parameter_block_data[addr] = data;
+                memcpy(data, it->parameter_blocks[i], sizeof(double) * size);// 深拷贝
+                parameter_block_data[addr] = data;// 地址->参数块实际内容
             }
         }
     }
@@ -150,65 +155,85 @@ int MarginalizationInfo::globalSize(int size) const
     return size == 6 ? 7 : size;
 }
 
+/**
+ * @brief 分线程构造Ax = b
+ *
+ * @param[in] threadsstruct
+ * @return void*
+ */
 void* ThreadsConstructA(void* threadsstruct)
 {
     ThreadsStruct* p = ((ThreadsStruct*)threadsstruct);
+    // 遍历这么多分配过来的任务
     for (auto it : p->sub_factors)
     {
+        // 遍历参数块
         for (int i = 0; i < static_cast<int>(it->parameter_blocks.size()); i++)
         {
-            int idx_i = p->parameter_block_idx[reinterpret_cast<long>(it->parameter_blocks[i])];
+            int idx_i = p->parameter_block_idx[reinterpret_cast<long>(it->parameter_blocks[i])];// 在大矩阵中的id，也就是落座的位置
             int size_i = p->parameter_block_size[reinterpret_cast<long>(it->parameter_blocks[i])];
-            if (size_i == 7)
+            if (size_i == 7)// 确保是local size
                 size_i = 6;
+            // 之前pre margin 已经算好了各个残差和雅克比，这里取出来
             Eigen::MatrixXd jacobian_i = it->jacobians[i].leftCols(size_i);
+
+            // 和本身以及其他雅克比块构造H矩阵
+            // i: 当前参数块， j: 另一个参数块
             for (int j = i; j < static_cast<int>(it->parameter_blocks.size()); j++)
             {
                 int idx_j = p->parameter_block_idx[reinterpret_cast<long>(it->parameter_blocks[j])];
                 int size_j = p->parameter_block_size[reinterpret_cast<long>(it->parameter_blocks[j])];
                 if (size_j == 7)
                     size_j = 6;
+                // 两个雅克比都取出来
                 Eigen::MatrixXd jacobian_j = it->jacobians[j].leftCols(size_j);
-                if (i == j)
+                if (i == j)// 如果是自己，主对角块
                     p->A.block(idx_i, idx_j, size_i, size_j) += jacobian_i.transpose() * jacobian_j;
-                else
+                else//非主对角块，需要分别添加转置
                 {
                     p->A.block(idx_i, idx_j, size_i, size_j) += jacobian_i.transpose() * jacobian_j;
                     p->A.block(idx_j, idx_i, size_j, size_i) = p->A.block(idx_i, idx_j, size_i, size_j).transpose();
                 }
             }
+            //J_T * b
             p->b.segment(idx_i, size_i) += jacobian_i.transpose() * it->residuals;
         }
     }
     return threadsstruct;
 }
 
+/**
+ * @brief 边缘化处理，多线程构造先验项舒尔补AX=b的结构，计算Jacobian和残差，并将结果转换成残差和雅克比的形式
+ *
+ */
 void MarginalizationInfo::marginalize()
 {
     int pos = 0;
+    // parameter_block_idx key是各个待边缘化参数块地址 value预设都是0
     for (auto &it : parameter_block_idx)
     {
-        it.second = pos;
-        pos += localSize(parameter_block_size[it.first]);
+        it.second = pos;// 这就是在所有参数中排序的idx，待边缘化的排在前面
+        pos += localSize(parameter_block_size[it.first]);// 维度累加 因为要进行求导，因此大小是local size，具体一点就是使用李代数
     }
 
-    m = pos;
+    m = pos;// 总共待边缘化的参数块总大小（不是个数）
 
+    // 累计其他参数块
     for (const auto &it : parameter_block_size)
     {
         if (parameter_block_idx.find(it.first) == parameter_block_idx.end())
         {
-            parameter_block_idx[it.first] = pos;
+            parameter_block_idx[it.first] = pos;// 这样每个参数块的大小都能被正确找到
             pos += localSize(it.second);
         }
     }
 
-    n = pos - m;
+    n = pos - m;// 其他参数块的总大小
 
     //ROS_DEBUG("marginalization, pos: %d, m: %d, n: %d, size: %d", pos, m, n, (int)parameter_block_idx.size());
 
     TicToc t_summing;
-    Eigen::MatrixXd A(pos, pos);
+    Eigen::MatrixXd A(pos, pos);// Ax = b预设大小
     Eigen::VectorXd b(pos);
     A.setZero();
     b.setZero();
@@ -240,24 +265,27 @@ void MarginalizationInfo::marginalize()
     */
     //multi thread
 
-
+    // 往A矩阵和b矩阵中填东西，利用多线程加速
     TicToc t_thread_summing;
     pthread_t tids[NUM_THREADS];
     ThreadsStruct threadsstruct[NUM_THREADS];
     int i = 0;
     for (auto it : factors)
     {
-        threadsstruct[i].sub_factors.push_back(it);
+        threadsstruct[i].sub_factors.push_back(it);// 每个线程均匀分配任务
         i++;
         i = i % NUM_THREADS;
     }
+    // 每个线程构造一个A矩阵和b矩阵，最后大家加起来
     for (int i = 0; i < NUM_THREADS; i++)
     {
         TicToc zero_matrix;
+        // 所有A矩阵和b矩阵大小一样，预设都是0
         threadsstruct[i].A = Eigen::MatrixXd::Zero(pos,pos);
         threadsstruct[i].b = Eigen::VectorXd::Zero(pos);
-        threadsstruct[i].parameter_block_size = parameter_block_size;
-        threadsstruct[i].parameter_block_idx = parameter_block_idx;
+        // 多线程访问会带来冲突，因此每个线程备份一下要查询的map
+        threadsstruct[i].parameter_block_size = parameter_block_size; //大小
+        threadsstruct[i].parameter_block_idx = parameter_block_idx; //索引
         int ret = pthread_create( &tids[i], NULL, ThreadsConstructA ,(void*)&(threadsstruct[i]));
         if (ret != 0)
         {
@@ -267,7 +295,9 @@ void MarginalizationInfo::marginalize()
     }
     for( int i = NUM_THREADS - 1; i >= 0; i--)  
     {
-        pthread_join( tids[i], NULL ); 
+        // 等待各个线程完成各自的任务
+        pthread_join( tids[i], NULL );
+        // 把各个子模块拼起来，就是最终的Hx = g
         A += threadsstruct[i].A;
         b += threadsstruct[i].b;
     }
@@ -276,29 +306,38 @@ void MarginalizationInfo::marginalize()
 
 
     //TODO
+    // Amm矩阵的构建是为了保证其正定性
     Eigen::MatrixXd Amm = 0.5 * (A.block(0, 0, m, m) + A.block(0, 0, m, m).transpose());
-    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> saes(Amm);
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> saes(Amm);// 特征值分解
 
     //ROS_ASSERT_MSG(saes.eigenvalues().minCoeff() >= -1e-4, "min eigenvalue %f", saes.eigenvalues().minCoeff());
 
+    // 一个逆矩阵的特征值是原矩阵的倒数，特征向量相同, Eigen中的selece类似C++中的  ? : 运算符？
+    // 利用特征值取逆来构造其逆矩阵
     Eigen::MatrixXd Amm_inv = saes.eigenvectors() * Eigen::VectorXd((saes.eigenvalues().array() > eps).select(saes.eigenvalues().array().inverse(), 0)).asDiagonal() * saes.eigenvectors().transpose();
     //printf("error1: %f\n", (Amm * Amm_inv - Eigen::MatrixXd::Identity(m, m)).sum());
 
-    Eigen::VectorXd bmm = b.segment(0, m);
+    Eigen::VectorXd bmm = b.segment(0, m);// 带边缘化的大小
     Eigen::MatrixXd Amr = A.block(0, m, m, n);
     Eigen::MatrixXd Arm = A.block(m, 0, n, m);
     Eigen::MatrixXd Arr = A.block(m, m, n, n);
-    Eigen::VectorXd brr = b.segment(m, n);
+    Eigen::VectorXd brr = b.segment(m, n);// 剩下的参数
     A = Arr - Arm * Amm_inv * Amr;
     b = brr - Arm * Amm_inv * bmm;
 
+    // 这个地方根据Ax = b => JT*J = - JT * e
+    // 对A做特征值分解 A = V * S * VT,其中Ｓ是特征值构成的对角矩阵
+    // 所以J = S^(1/2) * VT , 这样JT * J = (S^(1/2) * VT)T * S^(1/2) * VT = V * S^(1/2)T *  S^(1/2) * VT = V * S * VT(对角矩阵的转置等于其本身)
+    // e = -(JT)-1 * b = - (S^-(1/2) * V^-1) * b = - (S^-(1/2) * VT) * b
     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> saes2(A);
+    // 对A矩阵取逆
     Eigen::VectorXd S = Eigen::VectorXd((saes2.eigenvalues().array() > eps).select(saes2.eigenvalues().array(), 0));
     Eigen::VectorXd S_inv = Eigen::VectorXd((saes2.eigenvalues().array() > eps).select(saes2.eigenvalues().array().inverse(), 0));
 
-    Eigen::VectorXd S_sqrt = S.cwiseSqrt();
+    Eigen::VectorXd S_sqrt = S.cwiseSqrt();// 这个求得就是 S^(1/2)，不过这里是向量还不是矩阵
     Eigen::VectorXd S_inv_sqrt = S_inv.cwiseSqrt();
 
+    // 边缘化为了实现对剩下参数块的约束，为了便于一起优化，就抽象成了残差和雅克比的形式，这样也形成了一种残差约束
     linearized_jacobians = S_sqrt.asDiagonal() * saes2.eigenvectors().transpose();
     linearized_residuals = S_inv_sqrt.asDiagonal() * saes2.eigenvectors().transpose() * b;
     //std::cout << A << std::endl

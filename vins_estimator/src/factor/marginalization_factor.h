@@ -41,8 +41,8 @@ struct ThreadsStruct
     std::vector<ResidualBlockInfo *> sub_factors;
     Eigen::MatrixXd A;
     Eigen::VectorXd b;
-    std::unordered_map<long, int> parameter_block_size; //global size
-    std::unordered_map<long, int> parameter_block_idx; //local size
+    std::unordered_map<long, int> parameter_block_size; //global size, 此参数块的维度
+    std::unordered_map<long, int> parameter_block_idx; //local size, 在大矩阵中的id，也就是落座的位置
 };
 
 class MarginalizationInfo
@@ -57,12 +57,12 @@ class MarginalizationInfo
     std::vector<double *> getParameterBlocks(std::unordered_map<long, double *> &addr_shift);
 
     std::vector<ResidualBlockInfo *> factors;//所有观测项
-    //m为要marg掉的变量个数，也就是parameter_block_idx的总localSize，以double为单位，VBias为9，PQ为6
+    //m为要marg掉的变量个数（参数块总大小），也就是parameter_block_idx的总localSize，以double为单位，VBias为9，PQ为6
     //n为要保留下来的优化变量的变量个数， n = localSize(parameter_block_size) - m
     int m, n;
-    std::unordered_map<long, int> parameter_block_size; //global size <优化变量内存地址,localSize>
+    std::unordered_map<long, int> parameter_block_size; //global size <优化变量内存地址,localSize>，参数块的维度
     int sum_block_size;
-    std::unordered_map<long, int> parameter_block_idx; //local size <待边缘化的优化变量内存地址,在parameter_block_size中的id>
+    std::unordered_map<long, int> parameter_block_idx; //local size <待边缘化的优化变量内存地址,在parameter_block_size中的id> 参数块在大矩阵中的索引
     std::unordered_map<long, double *> parameter_block_data;//<优化变量内存地址,数据>
 
     std::vector<int> keep_block_size; //global size  表示上一次边缘化留下来的参数块的大小

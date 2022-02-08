@@ -46,7 +46,7 @@ class FeaturePerId
 {
   public:
     const int feature_id;//特征点索引
-    int start_frame;
+    int start_frame;//
     vector<FeaturePerFrame> feature_per_frame;//由多个连续图像观测到
 
     int used_num;
