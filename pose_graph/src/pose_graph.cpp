@@ -886,15 +886,16 @@ void PoseGraph::publish()
     //posegraph_visualization->publish_by(pub_pose_graph, path[sequence_cnt].header);
 }
 
+//更新关键帧的回环信息
 void PoseGraph::updateKeyFrameLoop(int index, Eigen::Matrix<double, 8, 1 > &_loop_info)
 {
     KeyFrame* kf = getKeyFrame(index);
-    kf->updateLoop(_loop_info);
+    kf->updateLoop(_loop_info);// 更新和回环帧相对位姿信息
     if (abs(_loop_info(7)) < 30.0 && Vector3d(_loop_info(0), _loop_info(1), _loop_info(2)).norm() < 20.0)
     {
         if (FAST_RELOCALIZATION)
         {
-            KeyFrame* old_kf = getKeyFrame(kf->loop_index);
+            KeyFrame* old_kf = getKeyFrame(kf->loop_index);// 得到回环帧信息
             Vector3d w_P_old, w_P_cur, vio_P_cur;
             Matrix3d w_R_old, w_R_cur, vio_R_cur;
             old_kf->getPose(w_P_old, w_R_old);
@@ -902,13 +903,16 @@ void PoseGraph::updateKeyFrameLoop(int index, Eigen::Matrix<double, 8, 1 > &_loo
 
             Vector3d relative_t;
             Quaterniond relative_q;
+            // 得到T_loop_cur
             relative_t = kf->getLoopRelativeT();
             relative_q = (kf->getLoopRelativeQ()).toRotationMatrix();
+            // T_w_loop * T_loop_cur = T_w_cur
             w_P_cur = w_R_old * relative_t + w_P_old;
             w_R_cur = w_R_old * relative_q;
             double shift_yaw;
             Matrix3d shift_r;
-            Vector3d shift_t; 
+            Vector3d shift_t;
+            // 更新VIO位姿和修正位姿的delta pose
             shift_yaw = Utility::R2ypr(w_R_cur).x() - Utility::R2ypr(vio_R_cur).x();
             shift_r = Utility::ypr2R(Vector3d(shift_yaw, 0, 0));
             shift_t = w_P_cur - w_R_cur * vio_R_cur.transpose() * vio_P_cur; 

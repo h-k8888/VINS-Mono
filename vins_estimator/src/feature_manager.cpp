@@ -171,6 +171,10 @@ void FeatureManager::setDepth(const VectorXd &x)
     }
 }
 
+/**
+ * @brief 移除一些不能被三角化的点
+ *
+ */
 void FeatureManager::removeFailures()
 {
     for (auto it = feature.begin(), it_next = feature.begin();
@@ -295,6 +299,8 @@ void FeatureManager::removeOutlier()
     }
 }
 
+//边缘化最老帧时，处理特征点保存的帧号，将起始帧是最老帧的特征点的深度值进行转移
+//marg_R、marg_P为被边缘化的位姿，new_R、new_P为在这下一帧的位姿
 void FeatureManager::removeBackShiftDepth(Eigen::Matrix3d marg_R, Eigen::Vector3d marg_P, Eigen::Matrix3d new_R, Eigen::Vector3d new_P)
 {
     for (auto it = feature.begin(), it_next = feature.begin();
@@ -302,25 +308,26 @@ void FeatureManager::removeBackShiftDepth(Eigen::Matrix3d marg_R, Eigen::Vector3
     {
         it_next++;
 
-        if (it->start_frame != 0)
+        if (it->start_frame != 0)// 如果不是被移除的帧看到，那么该地图点对应的起始帧id减一
             it->start_frame--;
         else
         {
-            Eigen::Vector3d uv_i = it->feature_per_frame[0].point;  
-            it->feature_per_frame.erase(it->feature_per_frame.begin());
-            if (it->feature_per_frame.size() < 2)
+            //特征点起始帧是最老帧
+            Eigen::Vector3d uv_i = it->feature_per_frame[0].point;  // 取出归一化相机坐标系坐标
+            it->feature_per_frame.erase(it->feature_per_frame.begin());// 该点不再被原来的第一帧看到，因此从中移除
+            if (it->feature_per_frame.size() < 2)//特征点只在最老帧被观测则直接移除
             {
                 feature.erase(it);
                 continue;
             }
             else
             {
-                Eigen::Vector3d pts_i = uv_i * it->estimated_depth;
-                Eigen::Vector3d w_pts_i = marg_R * pts_i + marg_P;
-                Eigen::Vector3d pts_j = new_R.transpose() * (w_pts_i - new_P);
+                Eigen::Vector3d pts_i = uv_i * it->estimated_depth;// 实际相机坐标系下的坐标
+                Eigen::Vector3d w_pts_i = marg_R * pts_i + marg_P;// 转到世界坐标系下
+                Eigen::Vector3d pts_j = new_R.transpose() * (w_pts_i - new_P);// 转到新的最老帧的相机坐标系下
                 double dep_j = pts_j(2);
-                if (dep_j > 0)
-                    it->estimated_depth = dep_j;
+                if (dep_j > 0)// 看看深度是否有效
+                    it->estimated_depth = dep_j; // 有效的话就得到在现在最老帧下的深度值
                 else
                     it->estimated_depth = INIT_DEPTH;
             }
@@ -353,12 +360,13 @@ void FeatureManager::removeBack()
     }
 }
 
+//边缘化次新帧时，对特征点在次新帧的信息进行移除处理
 void FeatureManager::removeFront(int frame_count)
 {
     for (auto it = feature.begin(), it_next = feature.begin(); it != feature.end(); it = it_next)
     {
         it_next++;
-
+        //起始帧为最新帧的滑动成次新帧
         if (it->start_frame == frame_count)
         {
             it->start_frame--;
@@ -366,8 +374,10 @@ void FeatureManager::removeFront(int frame_count)
         else
         {
             int j = WINDOW_SIZE - 1 - it->start_frame;
-            if (it->endFrame() < frame_count - 1)
+            if (it->endFrame() < frame_count - 1)//如果次新帧之前已经跟踪结束则什么都不做
                 continue;
+            //如果在次新帧仍被跟踪，则删除feature_per_frame中次新帧对应的FeaturePerFrame
+            //如果feature_per_frame为空则直接删除特征点
             it->feature_per_frame.erase(it->feature_per_frame.begin() + j);
             if (it->feature_per_frame.size() == 0)
                 feature.erase(it);

@@ -29,6 +29,7 @@ std::mutex i_buf;
 std::mutex m_estimator;
 
 double latest_time;
+//IMU的数据
 Eigen::Vector3d tmp_P; //由IMU预测的状态量
 Eigen::Quaterniond tmp_Q;
 Eigen::Vector3d tmp_V;
@@ -79,6 +80,8 @@ void predict(const sensor_msgs::ImuConstPtr &imu_msg)
     gyr_0 = angular_velocity;//前一时刻的角速度
 }
 
+//从估计器中得到滑动窗口当前图像帧的imu更新项[P,Q,V,ba,bg,a,g]
+//对imu_buf中剩余的imu_msg进行PVQ递推
 void update()
 {
     TicToc t_predict;
@@ -301,18 +304,19 @@ void process()
             }
 
             //如果重定位
-            if (relo_msg != NULL)
+            if (relo_msg != NULL)// 有效回环信息
             {
                 vector<Vector3d> match_points;
-                double frame_stamp = relo_msg->header.stamp.toSec();
+                double frame_stamp = relo_msg->header.stamp.toSec();// 回环帧时间戳
                 for (unsigned int i = 0; i < relo_msg->points.size(); i++)
                 {
                     Vector3d u_v_id;
-                    u_v_id.x() = relo_msg->points[i].x;
+                    u_v_id.x() = relo_msg->points[i].x;// 回环帧的归一化坐标
                     u_v_id.y() = relo_msg->points[i].y;
                     u_v_id.z() = relo_msg->points[i].z;
                     match_points.push_back(u_v_id);
                 }
+                // 回环帧的位姿
                 Vector3d relo_t(relo_msg->channels[0].values[0], relo_msg->channels[0].values[1], relo_msg->channels[0].values[2]);
                 Quaterniond relo_q(relo_msg->channels[0].values[3], relo_msg->channels[0].values[4], relo_msg->channels[0].values[5], relo_msg->channels[0].values[6]);
                 Matrix3d relo_r = relo_q.toRotationMatrix();
@@ -345,7 +349,7 @@ void process()
                 image[feature_id].emplace_back(camera_id,  xyz_uv_velocity);
             }
 
-            //处理图像特征
+            //处理图像核心函数
             estimator.processImage(image, img_msg->header);
 
             double whole_t = t_s.toc();
@@ -353,12 +357,13 @@ void process()
             std_msgs::Header header = img_msg->header;
             header.frame_id = "world";
 
-            pubOdometry(estimator, header);
-            pubKeyPoses(estimator, header);
-            pubCameraPose(estimator, header);
-            pubPointCloud(estimator, header);
-            pubTF(estimator, header);
-            pubKeyframe(estimator);
+            //给RVIZ发送topic
+            pubOdometry(estimator, header);//"odometry" 里程计信息PQV
+            pubKeyPoses(estimator, header);//"key_poses" 关键点三维坐标
+            pubCameraPose(estimator, header);//"camera_pose" 相机位姿
+            pubPointCloud(estimator, header);//"history_cloud" 点云信息
+            pubTF(estimator, header);//"extrinsic" 相机到IMU的外参
+            pubKeyframe(estimator);//"keyframe_point"、"keyframe_pose" 关键帧位姿和点云
             if (relo_msg != NULL)
                 pubRelocalization(estimator);
             //ROS_ERROR("end: %f, at %f", img_msg->header.stamp.toSec(), ros::Time::now().toSec());
@@ -367,7 +372,7 @@ void process()
         m_buf.lock();
         m_state.lock();
         if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
-            update();
+            update();//更新IMU参数[P,Q,V,ba,bg,a,g]
         m_state.unlock();
         m_buf.unlock();
     }

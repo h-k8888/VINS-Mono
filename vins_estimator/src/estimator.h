@@ -104,7 +104,7 @@ class Estimator
 
     vector<Vector3d> point_cloud;
     vector<Vector3d> margin_cloud;
-    vector<Vector3d> key_poses;
+    vector<Vector3d> key_poses;//给可视化用的关键帧
     double initial_timestamp;
 
 
@@ -121,14 +121,14 @@ class Estimator
     MarginalizationInfo *last_marginalization_info;
     vector<double *> last_marginalization_parameter_blocks;//ceres优化时，边缘化传入的数据
 
-    map<double, ImageFrame> all_image_frame;//时间戳，图像
+    map<double, ImageFrame> all_image_frame;//时间戳 --> 图像
     IntegrationBase *tmp_pre_integration;//预积分
 
     //relocalization variable
-    bool relocalization_info;
+    bool relocalization_info;// 1有效
     double relo_frame_stamp;
     double relo_frame_index;
-    int relo_frame_local_index;
+    int relo_frame_local_index;//回环帧对应滑窗中的第i帧
     vector<Vector3d> match_points;
     double relo_Pose[SIZE_POSE];
     Matrix3d drift_correct_r;

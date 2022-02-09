@@ -49,9 +49,9 @@ public:
 	void savePoseGraph();
 	void loadPoseGraph();
 	void publish();
-	Vector3d t_drift;
-	double yaw_drift;
-	Matrix3d r_drift;
+	Vector3d t_drift; //位移t增量
+	double yaw_drift; //yaw增量
+	Matrix3d r_drift; //旋转r增量
 	// world frame( base sequence or first sequence)<----> cur sequence frame  
 	Vector3d w_t_vio;
 	Matrix3d w_r_vio;
