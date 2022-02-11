@@ -117,7 +117,18 @@ void BriefExtractor::operator() (const cv::Mat &im, vector<cv::KeyPoint> &keys, 
   m_brief.compute(im, keys, descriptors);
 }
 
-
+/**
+ * @brief 暴力匹配法，通过遍历所有的候选描述子得到最佳匹配
+ *
+ * @param[in] window_descriptor 当前帧的一个描述子
+ * @param[in] descriptors_old 回环帧的描述子集合
+ * @param[in] keypoints_old 回环帧像素坐标集合
+ * @param[in] keypoints_old_norm 回环帧归一化坐标集合
+ * @param[out] best_match 最佳匹配的像素坐标
+ * @param[out] best_match_norm 最佳匹配的归一化相机坐标
+ * @return true
+ * @return false
+ */
 bool KeyFrame::searchInAera(const BRIEF::bitset window_descriptor,
                             const std::vector<BRIEF::bitset> &descriptors_old,
                             const std::vector<cv::KeyPoint> &keypoints_old,
@@ -149,6 +160,16 @@ bool KeyFrame::searchInAera(const BRIEF::bitset window_descriptor,
       return false;
 }
 
+/**
+ * @brief   将关键帧与回环帧进行BRIEF描述子匹配
+ * @param[out]  matched_2d_old  	回环帧匹配后的二维坐标
+ * @param[out]  matched_2d_old_norm 回环帧匹配后的二维归一化坐标
+ * @param[out]  status				匹配状态，成功为1
+ * @param[in]   descriptors_old		回环帧的描述子
+ * @param[in] 	keypoints_old 		回环帧的二维坐标
+ * @param[in] 	keypoints_old_norm	回环帧的二维归一化坐标
+ * @return      void
+*/
 void KeyFrame::searchByBRIEFDes(std::vector<cv::Point2f> &matched_2d_old,
 								std::vector<cv::Point2f> &matched_2d_old_norm,
                                 std::vector<uchar> &status,
@@ -156,15 +177,17 @@ void KeyFrame::searchByBRIEFDes(std::vector<cv::Point2f> &matched_2d_old,
                                 const std::vector<cv::KeyPoint> &keypoints_old,
                                 const std::vector<cv::KeyPoint> &keypoints_old_norm)
 {
+    // 遍历当前的光流用的角点来进行描述子匹配
     for(int i = 0; i < (int)window_brief_descriptors.size(); i++)
     {
         cv::Point2f pt(0.f, 0.f);
         cv::Point2f pt_norm(0.f, 0.f);
+        // 进行暴力匹配
         if (searchInAera(window_brief_descriptors[i], descriptors_old, keypoints_old, keypoints_old_norm, pt, pt_norm))
-          status.push_back(1);
+          status.push_back(1);// 匹配上了状态位置1
         else
           status.push_back(0);
-        matched_2d_old.push_back(pt);
+        matched_2d_old.push_back(pt);// 对应的像素坐标和归一化坐标存起来
         matched_2d_old_norm.push_back(pt_norm);
     }
 
@@ -197,6 +220,15 @@ void KeyFrame::FundmantalMatrixRANSAC(const std::vector<cv::Point2f> &matched_2d
     }
 }
 
+/**
+ * @brief 通过PNP对当前帧和回环是否构成回环进行校验
+ *
+ * @param[in] matched_2d_old_norm 回环帧2d归一化坐标
+ * @param[in] matched_3d 当前帧3d地图点
+ * @param[out] status
+ * @param[out] PnP_T_old  回环帧在VIO坐标系下的位姿
+ * @param[out] PnP_R_old
+ */
 void KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
                          const std::vector<cv::Point3f> &matched_3d,
                          std::vector<uchar> &status,
@@ -250,12 +282,18 @@ void KeyFrame::PnPRANSAC(const vector<cv::Point2f> &matched_2d_old_norm,
     cv::cv2eigen(t, T_pnp);
     T_w_c_old = R_w_c_old * (-T_pnp);
 
-    PnP_R_old = R_w_c_old * qic.transpose();
+    PnP_R_old = R_w_c_old * qic.transpose();// 回环帧在VIO坐标系下的位姿
     PnP_T_old = T_w_c_old - PnP_R_old * tic;
 
 }
 
-
+/**
+ * @brief 寻找两帧之间联系，确定是否回环
+ *
+ * @param[in] old_kf
+ * @return true
+ * @return false
+ */
 bool KeyFrame::findConnection(KeyFrame* old_kf)
 {
 	TicToc tmp_t;
@@ -298,13 +336,14 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	    }
 	#endif
 	//printf("search by des\n");
+    //关键帧与回环帧进行BRIEF描述子匹配，剔除匹配失败的点
 	searchByBRIEFDes(matched_2d_old, matched_2d_old_norm, status, old_kf->brief_descriptors, old_kf->keypoints, old_kf->keypoints_norm);
-	reduceVector(matched_2d_cur, status);
-	reduceVector(matched_2d_old, status);
-	reduceVector(matched_2d_cur_norm, status);
-	reduceVector(matched_2d_old_norm, status);
-	reduceVector(matched_3d, status);
-	reduceVector(matched_id, status);
+    reduceVector(matched_2d_cur, status);	// 当前帧的像素坐标
+    reduceVector(matched_2d_old, status);	// 回环帧的像素坐标
+    reduceVector(matched_2d_cur_norm, status);	// 当前帧的归一化坐标
+    reduceVector(matched_2d_old_norm, status);	// 回环帧的归一化坐标
+    reduceVector(matched_3d, status);	// 当前帧对应的VIO中3d世界坐标
+    reduceVector(matched_id, status);	// 当前帧对应的地图点索引
 	//printf("search by des finish\n");
 
 	#if 0 
@@ -403,9 +442,11 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	Eigen::Vector3d relative_t;
 	Quaterniond relative_q;
 	double relative_yaw;
+    //若达到最小回环匹配点数
 	if ((int)matched_2d_cur.size() > MIN_LOOP_NUM)
 	{
 		status.clear();
+        //RANSAC PnP检测去除误匹配的点
 	    PnPRANSAC(matched_2d_old_norm, matched_3d, status, PnP_T_old, PnP_R_old);
 	    reduceVector(matched_2d_cur, status);
 	    reduceVector(matched_2d_old, status);
@@ -420,9 +461,18 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	        	cv::Mat gap_image(ROW, gap, CV_8UC1, cv::Scalar(255, 255, 255));
 	            cv::Mat gray_img, loop_match_img;
 	            cv::Mat old_img = old_kf->image;
+                /*void cv::hconcat	(	水平串联两个图像
+                 *	InputArray 	src1,	第一个输入矩阵
+                 *	InputArray 	src2,	第二个输入矩阵
+                 *	OutputArray dst 	输出矩阵，行数与前两个矩阵相同，列数为他们的总和
+                 *	)
+                */
+                //这里将image、gap_image、old_img水平拼接起来成为gray_img
 	            cv::hconcat(image, gap_image, gap_image);
 	            cv::hconcat(gap_image, old_img, gray_img);
+                //灰度图gray_img转换成RGB图loop_match_img
 	            cvtColor(gray_img, loop_match_img, CV_GRAY2RGB);
+                //在图片loop_match_img上标注出匹配点和之间的连线
 	            for(int i = 0; i< (int)matched_2d_cur.size(); i++)
 	            {
 	                cv::Point2f cur_pt = matched_2d_cur[i];
@@ -440,7 +490,8 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	                old_pt.x += (COL + gap) ;
 	                cv::line(loop_match_img, matched_2d_cur[i], old_pt, cv::Scalar(0, 255, 0), 2, 8, 0);
 	            }
-	            cv::Mat notation(50, COL + gap + COL, CV_8UC3, cv::Scalar(255, 255, 255));
+                //在loop_match_img下面垂直拼接一个notation，写上当前帧和先前帧的索引值和序列号
+                cv::Mat notation(50, COL + gap + COL, CV_8UC3, cv::Scalar(255, 255, 255));
 	            putText(notation, "current frame: " + to_string(index) + "  sequence: " + to_string(sequence), cv::Point2f(20, 30), CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255), 3);
 
 	            putText(notation, "previous frame: " + to_string(old_kf->index) + "  sequence: " + to_string(old_kf->sequence), cv::Point2f(20 + COL + gap, 30), CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(255), 3);
@@ -453,7 +504,9 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	                    << old_kf->index << "-" << "3pnp_match.jpg";
 	            cv::imwrite( path.str().c_str(), loop_match_img);
 	            */
-	            if ((int)matched_2d_cur.size() > MIN_LOOP_NUM)
+
+                //若达到最小回环匹配点数，将loop_match_img的宽和高缩小一半并发布为pub_match_img
+                if ((int)matched_2d_cur.size() > MIN_LOOP_NUM)
 	            {
 	            	/*
 	            	cv::imshow("loop connection",loop_match_img);  
@@ -469,10 +522,14 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	    #endif
 	}
 
+    //若达到最小回环匹配点数
 	if ((int)matched_2d_cur.size() > MIN_LOOP_NUM)
 	{
-	    relative_t = PnP_R_old.transpose() * (origin_vio_T - PnP_T_old);
+        //  T_old_w * T_w_cur = T_old_cur; old:回环帧 cur：当前帧
+        //PnP_T_old回环帧在VIO坐标系下的位姿
+        relative_t = PnP_R_old.transpose() * (origin_vio_T - PnP_T_old);
 	    relative_q = PnP_R_old.transpose() * origin_vio_R;
+        // 计算yaw角差
 	    relative_yaw = Utility::normalizeAngle(Utility::R2ypr(origin_vio_R).x() - Utility::R2ypr(PnP_R_old).x());
 	    //printf("PNP relative\n");
 	    //cout << "pnp relative_t " << relative_t.transpose() << endl;
@@ -480,24 +537,27 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 	    if (abs(relative_yaw) < 30.0 && relative_t.norm() < 20.0)
 	    {
 
-	    	has_loop = true;
-	    	loop_index = old_kf->index;
+	    	has_loop = true;// 至此才认为找到了回环
+	    	loop_index = old_kf->index;// 确定回环帧的idx，以及两帧之间相对位姿
 	    	loop_info << relative_t.x(), relative_t.y(), relative_t.z(),
 	    	             relative_q.w(), relative_q.x(), relative_q.y(), relative_q.z(),
 	    	             relative_yaw;
+
+            //快速重定位
 	    	if(FAST_RELOCALIZATION)
 	    	{
 			    sensor_msgs::PointCloud msg_match_points;
 			    msg_match_points.header.stamp = ros::Time(time_stamp);
+                // 回环帧2d归一化坐标
 			    for (int i = 0; i < (int)matched_2d_old_norm.size(); i++)
 			    {
 		            geometry_msgs::Point32 p;
 		            p.x = matched_2d_old_norm[i].x;
 		            p.y = matched_2d_old_norm[i].y;
-		            p.z = matched_id[i];
+		            p.z = matched_id[i];// 对应的VIO地图点的id
 		            msg_match_points.points.push_back(p);
 			    }
-			    Eigen::Vector3d T = old_kf->T_w_i; 
+			    Eigen::Vector3d T = old_kf->T_w_i; // 回环帧的pose
 			    Eigen::Matrix3d R = old_kf->R_w_i;
 			    Quaterniond Q(R);
 			    sensor_msgs::ChannelFloat32 t_q_index;
@@ -508,7 +568,7 @@ bool KeyFrame::findConnection(KeyFrame* old_kf)
 			    t_q_index.values.push_back(Q.x());
 			    t_q_index.values.push_back(Q.y());
 			    t_q_index.values.push_back(Q.z());
-			    t_q_index.values.push_back(index);
+			    t_q_index.values.push_back(index);// 当前帧的索引
 			    msg_match_points.channels.push_back(t_q_index);
 			    pub_match_points.publish(msg_match_points);
 	    	}
@@ -545,6 +605,12 @@ void KeyFrame::updatePose(const Eigen::Vector3d &_T_w_i, const Eigen::Matrix3d &
     R_w_i = _R_w_i;
 }
 
+/**
+ * @brief 更新一些vio位姿，将回环修正的累计误差补偿进来
+ *
+ * @param[in] _T_w_i
+ * @param[in] _R_w_i
+ */
 void KeyFrame::updateVioPose(const Eigen::Vector3d &_T_w_i, const Eigen::Matrix3d &_R_w_i)
 {
 	vio_T_w_i = _T_w_i;

@@ -49,6 +49,7 @@ public:
 	void savePoseGraph();
 	void loadPoseGraph();
 	void publish();
+    // 当前帧的VIO位姿和4DoF优化后位姿差
 	Vector3d t_drift; //位移t增量
 	double yaw_drift; //yaw增量
 	Matrix3d r_drift; //旋转r增量

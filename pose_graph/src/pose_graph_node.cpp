@@ -441,7 +441,7 @@ void process()
 
                 //在posegraph中添加关键帧，flag_detect_loop=1回环检测
                 start_flag = 1;
-                posegraph.addKeyFrame(keyframe, 1);//todo 回环检测核心入口函数
+                posegraph.addKeyFrame(keyframe, 1);//回环检测核心入口函数
                 m_process.unlock();
                 frame_index++;
                 last_t = T;

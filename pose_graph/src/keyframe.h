@@ -76,7 +76,7 @@ public:
 
 	double time_stamp; 
 	int index;
-	int local_index;
+	int local_index;// 当前帧在本次优化中的idx
 	Eigen::Vector3d vio_T_w_i; 
 	Eigen::Matrix3d vio_R_w_i; 
 	Eigen::Vector3d T_w_i;
