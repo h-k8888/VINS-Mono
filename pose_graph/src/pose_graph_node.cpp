@@ -66,6 +66,8 @@ CameraPoseVisualization cameraposevisual(1, 0, 0, 1);
 Eigen::Vector3d last_t(-100, -100, -100);
 double last_image_time = -1;
 
+bool save_path = false;
+
 //开始一个新的图像序列（地图合并功能）
 void new_sequence()
 {
@@ -488,6 +490,7 @@ int main(int argc, char **argv)
     n.getParam("visualization_shift_y", VISUALIZATION_SHIFT_Y);
     n.getParam("skip_cnt", SKIP_CNT);
     n.getParam("skip_dis", SKIP_DIS);
+    n.getParam("save_path", save_path);
     std::string config_file;
     n.getParam("config_file", config_file);
     cv::FileStorage fsSettings(config_file, cv::FileStorage::READ);
@@ -574,6 +577,29 @@ int main(int argc, char **argv)
 
 
     ros::spin();
+
+`    //save no_loop_path TUM
+    if (save_path)
+    {
+        printf("\n..............Saving path................\n");
+        ofstream of("/tmp/path.txt");
+        if (of.is_open())
+        {
+            of.setf(ios::fixed, ios::floatfield);
+            of.precision(6);
+            for (int i = 0; i < no_loop_path.poses.size(); ++i) {
+                of<< no_loop_path.poses[i].header.stamp.toSec()<< " "
+                  << no_loop_path.poses[i].pose.position.x<< " "
+                  << no_loop_path.poses[i].pose.position.y<< " "
+                  << no_loop_path.poses[i].pose.position.z<< " "
+                  << no_loop_path.poses[i].pose.orientation.x<< " "
+                  << no_loop_path.poses[i].pose.orientation.y<< " "
+                  << no_loop_path.poses[i].pose.orientation.z<< " "
+                  << no_loop_path.poses[i].pose.orientation.w<< "\n";
+            }
+            of.close();
+        }
+    }
 
     return 0;
 }
