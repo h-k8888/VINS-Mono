@@ -61,7 +61,7 @@ class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
 #endif
 
         Eigen::Map<Eigen::Matrix<double, 15, 1>> residual(residuals);
-        //获取IMU预积分的残差
+        //获取IMU预积分的残差，函数内部度对状态量用bias做了线性纠正
         residual = pre_integration->evaluate(Pi, Qi, Vi, Bai, Bgi,
                                             Pj, Qj, Vj, Baj, Bgj);
 
@@ -91,6 +91,7 @@ class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
 ///                ROS_BREAK();
             }
 
+            //对索引0的变量块计算雅可比
             if (jacobians[0])
             {
                 // 第i帧的IMU位姿 pbi、qbi

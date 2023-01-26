@@ -70,7 +70,7 @@ class IntegrationBase
         result_delta_q = delta_q * Quaterniond(1, un_gyr(0) * _dt / 2, un_gyr(1) * _dt / 2, un_gyr(2) * _dt / 2);//当前IMU的body相对于起始的旋转
         Vector3d un_acc_1 = result_delta_q * (_acc_1 - linearized_ba);//积分起始的body系下，当前加速度
         Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);//积分起始的body系下，加速度均值
-        result_delta_p = delta_p + delta_v * _dt + 0.5 * un_acc * _dt * _dt;//位移
+        result_delta_p = delta_p + delta_v * _dt + 0.5 * un_acc * _dt * _dt;//位移,相对于起始Body系
         result_delta_v = delta_v + un_acc * _dt;//速度
         result_linearized_ba = linearized_ba;//bias不变
         result_linearized_bg = linearized_bg;         
@@ -83,13 +83,13 @@ class IntegrationBase
             Matrix3d R_w_x, R_a_0_x, R_a_1_x;
 
             //反对称矩阵
-            R_w_x<<0, -w_x(2), w_x(1),
+            R_w_x<<0, -w_x(2), w_x(1),      //角速度^
                 w_x(2), 0, -w_x(0),
                 -w_x(1), w_x(0), 0;
-            R_a_0_x<<0, -a_0_x(2), a_0_x(1),
+            R_a_0_x<<0, -a_0_x(2), a_0_x(1), //加速度a0^
                 a_0_x(2), 0, -a_0_x(0),
                 -a_0_x(1), a_0_x(0), 0;
-            R_a_1_x<<0, -a_1_x(2), a_1_x(1),
+            R_a_1_x<<0, -a_1_x(2), a_1_x(1), //加速度a1^
                 a_1_x(2), 0, -a_1_x(0),
                 -a_1_x(1), a_1_x(0), 0;
 
@@ -189,20 +189,22 @@ class IntegrationBase
         Eigen::Matrix<double, 15, 1> residuals;
 
         //从雅可比矩阵中的块获取
-        Eigen::Matrix3d dp_dba = jacobian.block<3, 3>(O_P, O_BA);
-        Eigen::Matrix3d dp_dbg = jacobian.block<3, 3>(O_P, O_BG);
+        Eigen::Matrix3d dp_dba = jacobian.block<3, 3>(O_P, O_BA); //(0, 9)
+        Eigen::Matrix3d dp_dbg = jacobian.block<3, 3>(O_P, O_BG); //(0, 12)
 
-        Eigen::Matrix3d dq_dbg = jacobian.block<3, 3>(O_R, O_BG);
+        Eigen::Matrix3d dq_dbg = jacobian.block<3, 3>(O_R, O_BG); //(3, 12)
 
         Eigen::Matrix3d dv_dba = jacobian.block<3, 3>(O_V, O_BA);
         Eigen::Matrix3d dv_dbg = jacobian.block<3, 3>(O_V, O_BG);
 
-        Eigen::Vector3d dba = Bai - linearized_ba;
+        Eigen::Vector3d dba = Bai - linearized_ba; //bias变化量
         Eigen::Vector3d dbg = Bgi - linearized_bg;
 
-        Eigen::Quaterniond corrected_delta_q = delta_q * Utility::deltaQ(dq_dbg * dbg);
-        Eigen::Vector3d corrected_delta_v = delta_v + dv_dba * dba + dv_dbg * dbg;
-        Eigen::Vector3d corrected_delta_p = delta_p + dp_dba * dba + dp_dbg * dbg;
+        //计算IMU的预测值，线性化纠正p v q
+        //Utility::deltaQ : omega to quaternion
+        Eigen::Quaterniond corrected_delta_q = delta_q * Utility::deltaQ(dq_dbg * dbg); //q * dq_dbg *dbg
+        Eigen::Vector3d corrected_delta_v = delta_v + dv_dba * dba + dv_dbg * dbg; // v + dv_dba * dba + dv_dbd * dbg
+        Eigen::Vector3d corrected_delta_p = delta_p + dp_dba * dba + dp_dbg * dbg; // p + dp_dba * dba + dp_dbd * dbg
 
         residuals.block<3, 1>(O_P, 0) = Qi.inverse() * (0.5 * G * sum_dt * sum_dt + Pj - Pi - Vi * sum_dt) - corrected_delta_p;
         residuals.block<3, 1>(O_R, 0) = 2 * (corrected_delta_q.inverse() * (Qi.inverse() * Qj)).vec();
@@ -219,7 +221,7 @@ class IntegrationBase
     const Eigen::Vector3d linearized_acc, linearized_gyr;
     Eigen::Vector3d linearized_ba, linearized_bg;
 
-    Eigen::Matrix<double, 15, 15> jacobian, covariance;
+    Eigen::Matrix<double, 15, 15> jacobian, covariance; //状态量的雅可比、协方差矩阵
     Eigen::Matrix<double, 15, 15> step_jacobian;
     Eigen::Matrix<double, 15, 18> step_V;
     Eigen::Matrix<double, 18, 18> noise;

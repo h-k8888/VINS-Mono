@@ -4,7 +4,7 @@ void ResidualBlockInfo::Evaluate()
 {
     residuals.resize(cost_function->num_residuals());// 确定残差的维数
 
-    std::vector<int> block_sizes = cost_function->parameter_block_sizes();// 确定相关的参数块数目
+    std::vector<int> block_sizes = cost_function->parameter_block_sizes();// // 得到残差的块数
     raw_jacobians = new double *[block_sizes.size()];// ceres接口都是double数组，因此这里给雅克比准备数组
     jacobians.resize(block_sizes.size());
 
@@ -12,7 +12,7 @@ void ResidualBlockInfo::Evaluate()
     for (int i = 0; i < static_cast<int>(block_sizes.size()); i++)
     {
         jacobians[i].resize(cost_function->num_residuals(), block_sizes[i]); // 雅克比矩阵大小 残差×变量
-        raw_jacobians[i] = jacobians[i].data();
+        raw_jacobians[i] = jacobians[i].data(); // 指向对应的雅可比
         //dim += block_sizes[i] == 7 ? 6 : block_sizes[i];
     }
     // 调用各自重载的接口计算残差和雅克比
@@ -102,10 +102,11 @@ void MarginalizationInfo::addResidualBlockInfo(ResidualBlockInfo *residual_block
     std::vector<double *> &parameter_blocks = residual_block_info->parameter_blocks;// 和该约束相关的参数块
     std::vector<int> parameter_block_sizes = residual_block_info->cost_function->parameter_block_sizes();// 各个参数块的大小
 
+    // 遍历所有参数块
     for (int i = 0; i < static_cast<int>(residual_block_info->parameter_blocks.size()); i++)
     {
-        double *addr = parameter_blocks[i];
-        int size = parameter_block_sizes[i];
+        double *addr = parameter_blocks[i];//指向数据的指针
+        int size = parameter_block_sizes[i];//记录参数块的维度
         // 这里是个map，避免重复添加
         parameter_block_size[reinterpret_cast<long>(addr)] = size;// 地址->global size
     }
@@ -113,9 +114,9 @@ void MarginalizationInfo::addResidualBlockInfo(ResidualBlockInfo *residual_block
     // 待边缘化的参数块
     for (int i = 0; i < static_cast<int>(residual_block_info->drop_set.size()); i++)
     {
-        double *addr = parameter_blocks[residual_block_info->drop_set[i]];
+        double *addr = parameter_blocks[residual_block_info->drop_set[i]];// 待边缘化的参数块的地址
         // 先准备好待边缘化的参数块的map
-        parameter_block_idx[reinterpret_cast<long>(addr)] = 0;
+        parameter_block_idx[reinterpret_cast<long>(addr)] = 0;//将需要边缘化的参数块存入parameter_block_idx，对应value记为0
     }
 }
 
@@ -125,12 +126,12 @@ void MarginalizationInfo::addResidualBlockInfo(ResidualBlockInfo *residual_block
  */
 void MarginalizationInfo::preMarginalize()
 {
-    for (auto it : factors)
+    for (auto it : factors) //遍历所有因子
     {
-        it->Evaluate();// 调用这个接口计算各个残差块的残差和雅克比矩阵
+        it->Evaluate();// 调用这个接口计算各个残差块的残差和雅克比矩阵(多态）
 
         std::vector<int> block_sizes = it->cost_function->parameter_block_sizes();// 得到残差的块数
-        for (int i = 0; i < static_cast<int>(block_sizes.size()); i++)
+        for (int i = 0; i < static_cast<int>(block_sizes.size()); i++) //遍历每一个参数块
         {
             long addr = reinterpret_cast<long>(it->parameter_blocks[i]);// 得到该参数块的地址
             int size = block_sizes[i];// 参数块大小
@@ -139,7 +140,7 @@ void MarginalizationInfo::preMarginalize()
             {
                 double *data = new double[size];
                 memcpy(data, it->parameter_blocks[i], sizeof(double) * size);// 深拷贝
-                parameter_block_data[addr] = data;// 地址->参数块实际内容
+                parameter_block_data[addr] = data;// <优化变量内存地址,数据>，参数块的数据
             }
         }
     }
@@ -208,7 +209,7 @@ void* ThreadsConstructA(void* threadsstruct)
  */
 void MarginalizationInfo::marginalize()
 {
-    int pos = 0;
+    int pos = 0;//用于构造矩阵的索引
     // parameter_block_idx key是各个待边缘化参数块地址 value预设都是0
     for (auto &it : parameter_block_idx)
     {
@@ -216,19 +217,19 @@ void MarginalizationInfo::marginalize()
         pos += localSize(parameter_block_size[it.first]);// 维度累加 因为要进行求导，因此大小是local size，具体一点就是使用李代数
     }
 
-    m = pos;// 总共待边缘化的参数块总大小（不是个数）
+    m = pos;// 总共待边缘化的参数块维度总大小（不是个数）
 
     // 累计其他参数块
     for (const auto &it : parameter_block_size)
     {
-        if (parameter_block_idx.find(it.first) == parameter_block_idx.end())
+        if (parameter_block_idx.find(it.first) == parameter_block_idx.end())//不需要边缘化的参数块
         {
-            parameter_block_idx[it.first] = pos;// 这样每个参数块的大小都能被正确找到
-            pos += localSize(it.second);
+            parameter_block_idx[it.first] = pos;//参数块的地址指向pos索引
+            pos += localSize(it.second); //pos索引累计新加入的维度
         }
     }
 
-    n = pos - m;// 其他参数块的总大小
+    n = pos - m;// pos此时为所有参数块维度和，其他参数块的总大小
 
     //ROS_DEBUG("marginalization, pos: %d, m: %d, n: %d, size: %d", pos, m, n, (int)parameter_block_idx.size());
 
@@ -356,7 +357,7 @@ std::vector<double *> MarginalizationInfo::getParameterBlocks(std::unordered_map
 
     for (const auto &it : parameter_block_idx)
     {
-        if (it.second >= m)
+        if (it.second >= m) //对于不需要边缘化
         {
             keep_block_size.push_back(parameter_block_size[it.first]);
             keep_block_idx.push_back(parameter_block_idx[it.first]);
@@ -415,8 +416,8 @@ bool MarginalizationFactor::Evaluate(double const *const *parameters, double *re
     {
         int size = marginalization_info->keep_block_size[i];
         int idx = marginalization_info->keep_block_idx[i] - m; // idx起点统一到0
-        Eigen::VectorXd x = Eigen::Map<const Eigen::VectorXd>(parameters[i], size); // 当前参数块的值
-        Eigen::VectorXd x0 = Eigen::Map<const Eigen::VectorXd>(marginalization_info->keep_block_data[i], size);// 当时参数块的值
+        Eigen::VectorXd x = Eigen::Map<const Eigen::VectorXd>(parameters[i], size); // 当前参数块的输入值？
+        Eigen::VectorXd x0 = Eigen::Map<const Eigen::VectorXd>(marginalization_info->keep_block_data[i], size);// 当前参数块边缘化后的值？
         if (size != 7)
             dx.segment(idx, size) = x - x0;// 不需要local param的直接做差
         else// 代表位姿的param

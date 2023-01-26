@@ -977,21 +977,25 @@ void Estimator::optimization()
 
         // 关于边缘化有几点注意的地方
         // 1、找到需要边缘化的参数块，这里是地图点，第0帧位姿，速度零偏
-        // 2、找到构造高斯牛顿下降时跟这些待边缘化相关的参数块有关的残差约束，那就是预积分约束，重投影约束，以及上一次边缘化约束
+        // 2、找到构造高斯牛顿下降时跟这些待边缘化相关的参数块有关的残差约束，
+        // 即与本次边缘化相关的参数块存在于上一次边缘化约束，预积分约束，重投影约束中
         // 3、这些约束连接的参数块中，不需要被边缘化的参数块，就是被提供先验约束的部分，也就是滑窗中剩下的位姿和速度零偏
 
         // 上一次的边缘化结果
         if (last_marginalization_info)
         {
-            vector<int> drop_set;
+            vector<int> drop_set;//记录上一次边缘化的结果中，本次需要边缘化的位姿和速度零偏的索引
+            //last_marginalization_parameter_blocks是上一次边缘化留下的残差块
             for (int i = 0; i < static_cast<int>(last_marginalization_parameter_blocks.size()); i++)
             {
-                // 涉及到待边缘化的,上一次边缘化留下来的当前参数块,只有位姿和速度零偏
+                // 边缘化最老帧时，上一次边缘化留下来的当前参数块,与本次边缘化相关的只有位姿和速度零偏
+                // 在上一次边缘化的残差块中，找到滑窗第一个位姿和速度零偏
                 if (last_marginalization_parameter_blocks[i] == para_Pose[0] ||
                     last_marginalization_parameter_blocks[i] == para_SpeedBias[0])
                     drop_set.push_back(i);//保存需要丢弃的块
             }
             // construct new marginlization_factor
+            // 根据边缘化各个参数块的维度，建立新的边缘化因子
             MarginalizationFactor *marginalization_factor = new MarginalizationFactor(last_marginalization_info);
             ResidualBlockInfo *residual_block_info = new ResidualBlockInfo(marginalization_factor, NULL,
                                                                            last_marginalization_parameter_blocks,
@@ -1007,7 +1011,7 @@ void Estimator::optimization()
                 // 跟构建ceres约束问题一样，这里也需要得到残差和雅克比
                 IMUFactor* imu_factor = new IMUFactor(pre_integrations[1]);
                 ResidualBlockInfo *residual_block_info = new ResidualBlockInfo(imu_factor, NULL,
-                                                                           vector<double *>{para_Pose[0], para_SpeedBias[0], para_Pose[1], para_SpeedBias[1]},
+                                                                           vector<double *>{para_Pose[0], para_SpeedBias[0], para_Pose[1], para_SpeedBias[1]},//相关联的参数块
                                                                            vector<int>{0, 1});// 这里就是第0和1个参数块是需要被边缘化的
                 marginalization_info->addResidualBlockInfo(residual_block_info);
             }
@@ -1207,7 +1211,7 @@ void Estimator::slideWindow()
                 Bas[i].swap(Bas[i + 1]);
                 Bgs[i].swap(Bgs[i + 1]);
             }
-            // 最后一帧的状态量赋上当前值，最为初始值
+            // 最后一帧的状态量赋上当前值，设为初始值
             Headers[WINDOW_SIZE] = Headers[WINDOW_SIZE - 1];
             Ps[WINDOW_SIZE] = Ps[WINDOW_SIZE - 1];
             Vs[WINDOW_SIZE] = Vs[WINDOW_SIZE - 1];
