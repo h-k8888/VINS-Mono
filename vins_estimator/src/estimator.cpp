@@ -353,7 +353,7 @@ bool Estimator::initialStructure()
             frame_it->second.R = Q[i].toRotationMatrix() * RIC[0].transpose(); // camera <-- imu
             frame_it->second.T = T[i];
             i++;
-            continue;me_it-
+            continue;
         }
 
         if((frame_it->first) > Headers[i].stamp.toSec())//当前帧晚于索引i的时间
