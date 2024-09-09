@@ -1,0 +1,102 @@
+%YAML:1.0
+
+#common parameters
+imu_topic: "/imu_data"
+#back
+image_topic: "/svc/back"
+output_path: "/media/autolab/disk_4T/zxy/Vins-mono/catkin_ws/output/" #需要修改
+
+#camera calibration
+image_width: 1920
+image_height: 1536
+model_type: KANNALA_BRANDT
+camera_name: camera
+pano_width: 3072
+pano_height: 1536
+
+# !以下参数全部为临时的无效参数！
+projection_parameters:
+  k2: 0.12127023778317204
+  k3: -0.011818168100508205
+  k4: -0.018813493668441945
+  k5: 0.004823607406016847
+  mu: 518.1340506650641
+  mv: 516.5971680780017
+  u0: 969.6260897673118
+  v0: 738.3938923533559
+extrinsics: !!opencv-matrix
+  rows: 4
+  cols: 4
+  dt: d
+  # data: [-0.999855, 0.017043, -0.000267, 0.030789,
+  #       0.006324, 0.356382, -0.934319, 1.849784,
+  #       -0.015829, -0.934185, -0.356439, -1.837129,
+  #        0.000000,  0.000000,  0.000000,  1.000000]
+  # data: [-0.999847,  0.017499, -0.000830,  0.032265,
+  #        0.007039,  0.357876, -0.933743,  1.853870,
+  #       -0.016043, -0.933605, -0.357944, -1.835038,
+  #        0.000000,  0.000000,  0.000000,  1.000000]
+  # data: [-0.999857, 0.006450, -0.015590, -0.010616,
+  #         0.016865,  0.356680, -0.934075, -2.350077,
+  #        -0.000464, -0.934205, -0.356738, 1.062,
+  #        0.000000,  0.000000,  0.000000,  1.000000]
+
+# Extrinsic parameter between IMU and Camera.
+estimate_extrinsic: 1   # 0  Have an accurate extrinsic parameters. We will trust the following imu^R_cam, imu^T_cam, don't change it.
+  # 1  Have an initial guess about extrinsic parameters. We will optimize around your initial guess.
+# 2  Don't know anything about extrinsic parameters. You don't need to give R,T. We will try to calibrate it. Do some rotation movement at beginning.
+#If you choose 0 or 1, you should write down the following matrix.
+#Rotation from camera frame to imu frame, imu^R_cam
+extrinsicRotation: !!opencv-matrix
+  rows: 3
+  cols: 3
+  dt: d
+  data: [0.016865, 0.356680, -0.934204,
+         -0.99857,  0.00645, -0.01559,
+         0.000464, 0.934205, 0.356738]
+#Translation from camera frame to imu frame, imu^T_cam
+extrinsicTranslation: !!opencv-matrix
+  rows: 3
+  cols: 1
+  dt: d
+  data: [-2.600077, -0.010616, -0.482]
+#feature traker parameters
+max_cnt: 400            # max feature number in feature tracking
+min_dist: 30            # min distance between two features
+freq: 10                # frequence (Hz) of publish tracking result. At least 10Hz for good estimation. If set 0, the frequence will be same as raw image
+F_threshold: 1.0        # ransac threshold (pixel)
+show_track: 1           # publish tracking image as topic
+equalize: 1             # if image is too dark or light, turn on equalize to find enough features
+fisheye: 0              # if using fisheye, turn on it. A circle mask will be loaded to remove edge noisy points
+
+#optimization parameters
+max_solver_time: 0.04  # max solver itration time (ms), to guarantee real time
+max_num_iterations: 8   # max solver itrations, to guarantee real time
+keyframe_parallax: 10.0 # keyframe selection threshold (pixel)
+
+#imu parameters       The more accurate parameters you provide, the better performance
+acc_n: 0.3556589629462925         # accelerometer measurement noise standard deviation. #0.2   0.04
+gyr_n: 0.12505425731875708         # gyroscope measurement noise standard deviation.     #0.05  0.004
+acc_w: 0.028958811400821436         # accelerometer bias random work noise standard deviation.  #0.02
+gyr_w: 0.004254939504284266        # gyroscope bias random work noise standard deviation.     #4.0e-5
+g_norm: 9.81007     # gravity magnitude
+
+
+#loop closure parameters
+loop_closure: 0                    # start loop closure
+load_previous_pose_graph: 0        # load and reuse previous pose graph; load from 'pose_graph_save_path'
+fast_relocalization: 0             # useful in real-time and large project
+pose_graph_save_path: "/home/shaozu/output/pose_graph/" # save and load path
+
+#unsynchronization parameters
+estimate_td: 0                      # online estimate time offset between camera and imu
+td: 0.0                             # initial value of time offset. unit: s. readed image clock + td = real image clock (IMU clock)
+
+#rolling shutter parameters
+rolling_shutter: 0                  # 0: global shutter camera, 1: rolling shutter camera
+rolling_shutter_tr: 0               # unit: s. rolling shutter read out time per frame (from data sheet).
+
+#visualization parameters
+save_image: 1                   # save image in pose graph for visualization prupose; you can close this function by setting 0
+visualize_imu_forward: 0        # output imu forward propogation to achieve low latency and high frequence results
+visualize_camera_size: 0.4      # size of camera marker in RVIZ
