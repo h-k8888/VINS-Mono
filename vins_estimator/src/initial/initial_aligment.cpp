@@ -25,7 +25,7 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
         tmp_A.setZero();
         VectorXd tmp_b(3);
         tmp_b.setZero();
-        Eigen::Quaterniond q_ij(frame_i->second.R.transpose() * frame_j->second.R);//相机旋转q i <-- j
+        Eigen::Quaterniond q_ij(frame_i->second.R.transpose() * frame_j->second.R);//imu旋转q i <-- j
         tmp_A = frame_j->second.pre_integration->jacobian.template block<3, 3>(O_R, O_BG);//tmp_A = J_j_bw
         //tmp_b = 2 * (r^bk_bk+1)^-1 * (q^c0_bk)^-1 * (q^c0_bk+1)
         //      = 2 * (r_imu_ij)^-1 * q_ij

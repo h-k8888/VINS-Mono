@@ -350,10 +350,10 @@ bool Estimator::initialStructure()
         if((frame_it->first) == Headers[i].stamp.toSec())//时间戳相同,当前帧在滑窗内
         {
             frame_it->second.is_key_frame = true;
-            frame_it->second.R = Q[i].toRotationMatrix() * RIC[0].transpose();
+            frame_it->second.R = Q[i].toRotationMatrix() * RIC[0].transpose(); // camera <-- imu
             frame_it->second.T = T[i];
             i++;
-            continue;
+            continue;me_it-
         }
 
         if((frame_it->first) > Headers[i].stamp.toSec())//当前帧晚于索引i的时间
